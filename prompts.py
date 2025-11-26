@@ -1,4 +1,4 @@
-from langchain_core.prompts import ChatPromptTemplate
+from langchain.prompts import ChatPromptTemplate
 
 RESUME_CHECK_PROMPT = ChatPromptTemplate.from_template(
     """
