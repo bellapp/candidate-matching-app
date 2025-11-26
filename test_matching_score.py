@@ -415,6 +415,7 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 CLAUDE_HAIKU_OPENROUTER = "anthropic/claude-haiku-4.5"
 GEMINI_FLASH_OPENROUTER = "google/gemini-2.5-flash-preview-09-2025"
 GEMINI_FLASH_LITE_OPENROUTER = "google/gemini-2.5-flash-lite"
+GPT_OSS_120B_OPENROUTER = "openai/gpt-oss-120b:exacto"
 
 # Default model (can be overridden)
 OPENROUTER_MODEL = CLAUDE_HAIKU_OPENROUTER
@@ -423,7 +424,8 @@ OPENROUTER_MODEL = CLAUDE_HAIKU_OPENROUTER
 MODEL_NAMES = {
     CLAUDE_HAIKU_OPENROUTER: "Claude Haiku 4.5",
     GEMINI_FLASH_OPENROUTER: "Gemini 2.5 Flash Preview",
-    GEMINI_FLASH_LITE_OPENROUTER: "Gemini 2.5 Flash Lite"
+    GEMINI_FLASH_LITE_OPENROUTER: "Gemini 2.5 Flash Lite",
+    GPT_OSS_120B_OPENROUTER: "GPT OSS 120B (Exacto)"
 }
 
 # Cache configuration
