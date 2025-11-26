@@ -1,5 +1,4 @@
 from langchain_core.prompts import ChatPromptTemplate
-
 RESUME_CHECK_PROMPT = ChatPromptTemplate.from_template(
     """
 Extract the desired information from the following passage.
