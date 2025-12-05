@@ -1733,7 +1733,7 @@ Start your response directly with:
         )
         # print(f"✓ Generated qualification note : {response_text[:200]}")
         
-        print(f"✓ Generated qualification note ({len(response_text)} chars, LLM: {llm_duration:.2f}s)")
+        print(f"✓ Generated qualification note  ({len(response_text)} chars, LLM: {llm_duration:.2f}s)")
         
         return response_text
         
