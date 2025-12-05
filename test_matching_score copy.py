@@ -339,7 +339,7 @@ except ImportError:
 # 5. Prompt versions and A/B testing
 
 try:
-    from langfuse import Langfuse, propagate_attributes
+    from langfuse import Langfuse
     
     # Initialize Langfuse client
     langfuse = Langfuse(
@@ -802,11 +802,7 @@ def call_openrouter(
     }
     
     # LANGFUSE: Create generation manually (v3.x API with session grouping)
-    # Use propagate_attributes to set session_id so it propagates to all child observations
-    # IMPORTANT: Keep propagate_attributes context open until generation is complete
     generation = None
-    propagate_context = None
-    
     if LANGFUSE_ENABLED and langfuse:
         try:
             # Build generation parameters
@@ -823,43 +819,23 @@ def call_openrouter(
                 "prompt": langfuse_prompt
             }
             
-            # Start propagate_attributes context if session_id is provided
-            # Keep it open until generation is complete
-            if session_id:
-                propagate_context = propagate_attributes(session_id=session_id)
-                propagate_context.__enter__()
-                print(f"🔍 Started propagate_attributes context with session_id: {session_id}")
+            # Session ID will be added via update() after creation
+            # Create generation using the client directly
+            if hasattr(langfuse, 'generation'):
+                generation = langfuse.generation(**gen_params)
+            elif hasattr(langfuse, 'start_generation'):
+                generation = langfuse.start_generation(**gen_params)
             
-            # Create generation (session_id will be automatically propagated if context is active)
-            if langfuse_parent:
-                # Create generation as child of parent trace/span
-                if hasattr(langfuse_parent, 'generation'):
-                    generation = langfuse_parent.generation(**gen_params)
-                elif hasattr(langfuse_parent, 'start_generation'):
-                    generation = langfuse_parent.start_generation(**gen_params)
-                else:
-                    # Fallback: create standalone
-                    if hasattr(langfuse, 'generation'):
-                        generation = langfuse.generation(**gen_params)
-                    elif hasattr(langfuse, 'start_generation'):
-                        generation = langfuse.start_generation(**gen_params)
-            else:
-                # Create standalone generation
-                if hasattr(langfuse, 'generation'):
-                    generation = langfuse.generation(**gen_params)
-                elif hasattr(langfuse, 'start_generation'):
-                    generation = langfuse.start_generation(**gen_params)
+            # Add session_id after creation if provided
+            if generation and session_id:
+                try:
+                    generation.update(session_id=session_id)
+                except Exception as e:
+                    print(f"⚠ Could not set session_id on generation: {e}")
                     
         except Exception as e:
             print(f"⚠ Langfuse generation creation failed: {e}")
             generation = None
-            # Exit context if creation failed
-            if propagate_context:
-                try:
-                    propagate_context.__exit__(None, None, None)
-                except:
-                    pass
-                propagate_context = None
 
     # Track actual LLM API call time (excluding Langfuse overhead)
     import time
@@ -922,8 +898,7 @@ def call_openrouter(
         try:
             # Extract token usage
             usage = result.get("usage", {})
-            # Update output and usage
-            # Note: session_id is already set via propagate_attributes, no need to set it here
+            # Update output and usage first
             generation.update(
                 output=content,
                 usage={
@@ -934,20 +909,8 @@ def call_openrouter(
             )
             # Then end the generation
             generation.end()
-            
-            if session_id:
-                print(f"✓ Generation completed with session_id: {session_id}")
         except Exception as e:
             print(f"⚠ Langfuse generation update failed: {e}")
-        finally:
-            # Close propagate_attributes context after generation is complete
-            if propagate_context:
-                try:
-                    propagate_context.__exit__(None, None, None)
-                    if session_id:
-                        print(f"✓ Closed propagate_attributes context for session_id: {session_id}")
-                except Exception as e:
-                    print(f"⚠ Error closing propagate_attributes context: {e}")
     
     # Return content and actual LLM call duration (excluding Langfuse overhead)
     print(f"⏱️  LLM API call took: {llm_duration:.2f}s")
@@ -1211,7 +1174,6 @@ def extract_rubric_with_llm(
 def score_criteria_with_llm(
     cv_profile: str, 
     rubric: EvaluationRubric,
-    langfuse_parent=None,
     session_id: str = None,
     model: str = None
 ) -> List[CriterionScore]:
@@ -1237,12 +1199,6 @@ def score_criteria_with_llm(
         for c in rubric.criteria
     ])
     
-    # Debug: Print rubric to verify it's correct
-    print(f"📋 Rubric being sent to LLM ({len(rubric.criteria)} criteria):")
-    for i, criterion in enumerate(rubric.criteria, 1):
-        print(f"  {i}. {criterion.name} (Weight: {criterion.weight:.1f}%)")
-    print(f"📋 Rubric text preview (first 500 chars):\n{rubric_text[:500]}")
-    
     # LANGFUSE: Trace/Span created automatically via @observe
     
     # Prepare prompt (try Langfuse first, fallback to hardcoded)
@@ -1250,51 +1206,16 @@ def score_criteria_with_llm(
     langfuse_prompt = None
     if LANGFUSE_ENABLED and langfuse:
         try:
-            langfuse_prompt = langfuse.get_prompt("criteria-scoring")
-            print(f"✓ Fetched Langfuse prompt: 'criteria-scoring'")
-            
-            # Debug: Check if rubric_text variable exists in prompt template
-            prompt_template = langfuse_prompt.prompt if hasattr(langfuse_prompt, 'prompt') else str(langfuse_prompt)
-            if "{rubric_text}" not in prompt_template and "{{rubric_text}}" not in prompt_template:
-                print(f"⚠⚠⚠ CRITICAL WARNING: Langfuse prompt template does NOT contain 'rubric_text' variable!")
-                print(f"   The LLM will NOT receive the rubric criteria!")
-                print(f"   Prompt template preview: {prompt_template[:500]}")
-                print(f"   Falling back to hardcoded prompt to ensure rubric is included.")
-                langfuse_prompt = None
-                prompt_content = None
-            else:
-                # Compile with variables
-                prompt_content = langfuse_prompt.compile(
-                    rubric_text=rubric_text,
-                    cv_profile=cv_profile
-                )
-                print("✓ Compiled Langfuse prompt with rubric_text and cv_profile")
-                
-                # Debug: Verify rubric is actually in compiled prompt
-                rubric_check_passed = False
-                if rubric_text[:200] in prompt_content:
-                    rubric_check_passed = True
-                    print(f"✓ Verified: Rubric text is present in compiled prompt")
-                else:
-                    # Check if criterion names are present
-                    found_criteria = 0
-                    for criterion in rubric.criteria:
-                        if criterion.name in prompt_content:
-                            found_criteria += 1
-                    
-                    if found_criteria >= len(rubric.criteria) * 0.8:  # At least 80% of criteria found
-                        rubric_check_passed = True
-                        print(f"✓ Verified: {found_criteria}/{len(rubric.criteria)} criterion names found in compiled prompt")
-                    else:
-                        print(f"⚠⚠⚠ WARNING: Only {found_criteria}/{len(rubric.criteria)} criterion names found in compiled prompt!")
-                        print(f"   This suggests the rubric_text variable may not be properly included.")
-                        print(f"   Falling back to hardcoded prompt to ensure rubric is included.")
-                        langfuse_prompt = None
-                        prompt_content = None
-                
+            langfuse_prompt = langfuse.get_prompt("criteria-scoring", version=6)
+            print(f"✓ Used managed prompt: '{langfuse_prompt.prompt})")
+            # Compile with variables
+            prompt_content = langfuse_prompt.compile(
+                rubric_text=rubric_text,
+                cv_profile=cv_profile
+            )
+            print("✓ Used managed prompt: 'criteria-scoring'")
         except Exception as e:
-            print(f"⚠ Failed to fetch/compile Langfuse prompt: {e}")
-            print(f"   Falling back to hardcoded prompt")
+            print(f"⚠ Failed to fetch prompt from Langfuse: {e}")
             prompt_content = None
             langfuse_prompt = None
             
@@ -1302,30 +1223,19 @@ def score_criteria_with_llm(
     if not prompt_content:
         prompt_content = f"""{CRITERIA_SCORING_PROMPT}
 
-## ⚠️ CRITICAL INSTRUCTION: USE ONLY THE PROVIDED CRITERIA ⚠️
-
-**You MUST score ONLY the criteria listed below. DO NOT create new criteria or modify the criterion names.**
-
-**Evaluation Criteria (YOU MUST SCORE EACH ONE):**
+**Evaluation Criteria:**
 {rubric_text}
 
 **Candidate CV:**
 {cv_profile}
 
-**CRITICAL REQUIREMENTS:**
-1. **You MUST score EXACTLY {len(rubric.criteria)} criteria** - one for each criterion listed above
-2. **Use the EXACT criterion names** as shown above (e.g., "{rubric.criteria[0].name if rubric.criteria else 'Criterion Name'}")
-3. **DO NOT create new criteria** - only score the ones provided
-4. **DO NOT combine or split criteria** - each criterion must be scored separately
-
-**For EACH criterion, you MUST provide:**
-1. "criteria_name" - Use the EXACT criterion name from the list above (e.g., "{rubric.criteria[0].name if rubric.criteria else 'Criterion Name'}"). DO NOT modify or create new names.
+**CRITICAL: For EACH criterion, you MUST provide:**
+1. "criteria_name" - Use ONLY the criterion name (e.g., "Seniority Level"), NOT the weight part (e.g., NOT "Seniority Level (Weight: 15.0%)")
+   - Extract just the name before the colon ":"
+   - Example: "Seniority Level (Weight: 15.0%): description" → criteria_name should be "Seniority Level"
 2. "score" - number between 0-100
 3. "evidence" - REQUIRED: specific evidence from the CV (quote or paraphrase). DO NOT leave empty!
 4. "gap" - REQUIRED if score < 80: what's missing or below requirement. Leave empty string "" if score >= 80.
-
-**Expected Output:**
-You must return a JSON object with exactly {len(rubric.criteria)} items in the "criteria_scores" array, one for each criterion listed above.
 
 Return ONLY valid JSON with ALL fields populated. Evidence and gap fields are MANDATORY."""
         print("✓ Used fallback hardcoded prompt")
@@ -1341,7 +1251,6 @@ Return ONLY valid JSON with ALL fields populated. Evidence and gap fields are MA
             ],
             max_tokens=4000,  # Increased to allow for evidence/gap text
             generation_name="criteria_scoring_llm",
-            langfuse_parent=langfuse_parent,
             langfuse_prompt=langfuse_prompt,
             session_id=session_id,
             model=model
@@ -1400,42 +1309,6 @@ Return ONLY valid JSON with ALL fields populated. Evidence and gap fields are MA
             print(f"DEBUG - First score structure: {json.dumps(first_score, indent=2)}")
             print(f"DEBUG - Keys in first score: {list(first_score.keys())}")
         
-        # Debug: Print all returned criteria names
-        returned_criteria_names = [s.get("criteria_name", "MISSING") for s in scores_data["criteria_scores"]]
-        expected_criteria_names = [c.name for c in rubric.criteria]
-        print(f"\n{'='*80}")
-        print(f"CRITERIA VALIDATION CHECK")
-        print(f"{'='*80}")
-        print(f"Expected criteria ({len(expected_criteria_names)}):")
-        for i, name in enumerate(expected_criteria_names, 1):
-            print(f"  {i}. {name}")
-        print(f"\nReturned criteria ({len(returned_criteria_names)}):")
-        for i, name in enumerate(returned_criteria_names, 1):
-            match_indicator = "✓" if name in expected_criteria_names else "❌"
-            print(f"  {i}. {match_indicator} {name}")
-        print(f"{'='*80}\n")
-        
-        # Check for mismatches
-        mismatches = []
-        for returned_name in returned_criteria_names:
-            if returned_name not in expected_criteria_names:
-                # Try to find partial matches
-                found_match = False
-                for expected_name in expected_criteria_names:
-                    if expected_name.lower() in returned_name.lower() or returned_name.lower() in expected_name.lower():
-                        print(f"⚠ Partial match found: '{returned_name}' might match '{expected_name}'")
-                        found_match = True
-                        break
-                if not found_match:
-                    mismatches.append(returned_name)
-        
-        if mismatches:
-            print(f"⚠ WARNING: {len(mismatches)} criteria returned that don't match the rubric:")
-            for mismatch in mismatches:
-                print(f"   - '{mismatch}' (not in rubric)")
-            print(f"   Expected: {expected_criteria_names}")
-            print(f"   This suggests the LLM may not have received the rubric properly or is generating its own criteria.")
-        
         # Create a mapping from criterion names (with or without weight) to actual criterion names
         criterion_name_map = {}
         for criterion in rubric.criteria:
@@ -1443,22 +1316,9 @@ Return ONLY valid JSON with ALL fields populated. Evidence and gap fields are MA
             criterion_name_map[criterion.name] = criterion.name
             # Map name with weight format (as shown in prompt)
             criterion_name_map[f"{criterion.name} (Weight: {criterion.weight:.1f}%)"] = criterion.name
-            # Map variations (case-insensitive, partial matches)
-            criterion_name_map[criterion.name.lower()] = criterion.name
-            # Try to match common variations
-            if "frontend" in criterion.name.lower() or "front-end" in criterion.name.lower():
-                criterion_name_map["Hard Skills - Front-end Technologies"] = criterion.name
-                criterion_name_map["Front-end Technologies"] = criterion.name
-            if "react" in criterion.name.lower():
-                criterion_name_map["Hard Skills - React.js"] = criterion.name
-            if "backend" in criterion.name.lower() or "back-end" in criterion.name.lower():
-                # This might not be in rubric, but we'll try to match
-                pass
         
-        # Convert to CriterionScore list - ONLY for criteria that match the rubric
+        # Convert to CriterionScore list
         scores = []
-        matched_criteria = set()  # Track which rubric criteria have been matched
-        
         for s in scores_data["criteria_scores"]:
             # Ensure all required fields exist
             if "criteria_name" not in s:
@@ -1481,38 +1341,9 @@ Return ONLY valid JSON with ALL fields populated. Evidence and gap fields are MA
                         criterion_name_map[raw_criteria_name] = normalized_name
                         break
             
-            # Try fuzzy matching if exact match not found
-            if normalized_name not in expected_criteria_names:
-                # Try to find best match
-                best_match = None
-                best_similarity = 0
-                for criterion in rubric.criteria:
-                    # Simple similarity check
-                    if normalized_name.lower() in criterion.name.lower() or criterion.name.lower() in normalized_name.lower():
-                        similarity = min(len(normalized_name), len(criterion.name)) / max(len(normalized_name), len(criterion.name))
-                        if similarity > best_similarity:
-                            best_similarity = similarity
-                            best_match = criterion.name
-                
-                if best_match and best_similarity > 0.5:
-                    print(f"⚠ Fuzzy matched: '{raw_criteria_name}' -> '{best_match}' (similarity: {best_similarity:.2f})")
-                    normalized_name = best_match
-                else:
-                    print(f"❌ ERROR: Criterion '{raw_criteria_name}' does not match any rubric criterion!")
-                    print(f"   Expected one of: {expected_criteria_names}")
-                    print(f"   Skipping this score to prevent incorrect matching.")
-                    continue
-            
             # Debug: Log name normalization
             if raw_criteria_name != normalized_name:
                 print(f"DEBUG: Normalized criteria name: '{raw_criteria_name}' -> '{normalized_name}'")
-            
-            # Check if we've already scored this criterion
-            if normalized_name in matched_criteria:
-                print(f"⚠ WARNING: Duplicate score for criterion '{normalized_name}'. Keeping first occurrence.")
-                continue
-            
-            matched_criteria.add(normalized_name)
             
             score_obj = CriterionScore(
                 criteria_name=normalized_name,  # Use normalized name
@@ -1526,25 +1357,6 @@ Return ONLY valid JSON with ALL fields populated. Evidence and gap fields are MA
                 print(f"WARNING: No evidence or gap for criterion: {score_obj.criteria_name}")
             
             scores.append(score_obj)
-        
-        # Check if all rubric criteria were scored
-        missing_criteria = set(expected_criteria_names) - matched_criteria
-        if missing_criteria:
-            print(f"⚠ WARNING: {len(missing_criteria)} rubric criteria were not scored: {missing_criteria}")
-            print(f"   This may cause incorrect final score calculation.")
-            # Add placeholder scores for missing criteria (score 0 with gap explanation)
-            for missing_name in missing_criteria:
-                # Find the criterion object
-                missing_criterion = next((c for c in rubric.criteria if c.name == missing_name), None)
-                if missing_criterion:
-                    placeholder_score = CriterionScore(
-                        criteria_name=missing_name,
-                        score=0.0,
-                        evidence="Criterion not scored by LLM - may indicate prompt issue",
-                        gap=f"Missing score for '{missing_name}' - LLM did not return this criterion"
-                    )
-                    scores.append(placeholder_score)
-                    print(f"   Added placeholder score (0) for '{missing_name}'")
         
         print(f"✓ Scored {len(scores)} criteria via LLM")
         
@@ -1570,7 +1382,6 @@ def generate_qualification_note(
     rubric_text: str = None,
     criteria_scores_text: str = None,
     language: str = "English",
-    langfuse_parent=None,
     session_id: str = None,
     model: str = None
 ) -> str:
@@ -1641,19 +1452,16 @@ Before providing your qualification assessment, you MUST:
 
 Please assess this candidate with heavy emphasis on recent experience patterns and career trajectory alignment.
 
-### LANGUAGE REQUIREMENT:
-**IMPORTANT:** Generate the qualification note in **{language}**. All content, including headings, assessments, and recommendations, must be written in {language}.
-
 ### TASK:
 **You have received all the required information above.** The job posting and candidate résumé have been provided. 
 
 DO NOT ask for documents. DO NOT wait for input. 
 
-**GENERATE THE COMPLETE QUALIFICATION NOTE NOW** following the exact HTML structure specified in your instructions, written entirely in **{language}**.
+**GENERATE THE COMPLETE QUALIFICATION NOTE NOW** following the exact HTML structure specified in your instructions.
 
 Start your response directly with:
 <b>OVERALL ASSESSMENT: [Fit Level]</b>
-""".format(language=language)
+"""
     
     # Prepare full prompt - System prompt first, then inputs
     prompt_content = f"""{QUALIFICATION_GENERATION_PROMPT}
@@ -1678,17 +1486,10 @@ Start your response directly with:
             print(f"✓ Fetched managed prompt: 'candidate-qualification' (version: {langfuse_prompt.version}) - for tracking only")
             
             # Compile the prompt with variables
-            compile_params = {
-                "job_posting": job_posting,
-                "cv_profile": cv_profile
-            }
-            if rubric_text:
-                compile_params["rubric_text"] = rubric_text
-            if criteria_scores_text:
-                compile_params["criteria_scores_text"] = criteria_scores_text
-            compile_params["language"] = language
-            
-            compiled = langfuse_prompt.compile(**compile_params)
+            compiled = langfuse_prompt.compile(
+                job_posting=job_posting,
+                cv_profile=cv_profile
+            )
             
             # Verify that the compiled prompt actually contains the actual data (not just templates)
             # Check if job posting content appears in the compiled prompt
@@ -1726,7 +1527,6 @@ Start your response directly with:
             ],
             max_tokens=3000,
             generation_name="qualification_generation",
-            langfuse_parent=langfuse_parent,
             langfuse_prompt=langfuse_prompt,
             session_id=session_id,
             model=model
@@ -1739,76 +1539,6 @@ Start your response directly with:
         
     except Exception as e:
         print(f"❌ Qualification generation failed: {e}")
-        raise
-
-
-def generate_qualification_summary(
-    qualification_note: str,
-    language: str = "English",
-    langfuse_parent=None,
-    session_id: str = None,
-    model: str = None
-) -> str:
-    """
-    Generate a concise summary of the qualification note.
-    
-    Args:
-        qualification_note: The full qualification note HTML text
-        language: Language for the summary (default: "English")
-        session_id: Optional session ID for Langfuse tracking
-        model: Optional model name to use
-        
-    Returns:
-        Concise summary text
-    """
-    print("\n[LLM CALL via OpenRouter] Qualification Summary Generation...")
-    print(f"🌐 Language: {language}")
-    
-    # Build prompt for summary generation
-    summary_prompt = """You are a talent acquisition specialist. Your task is to create a concise, executive-level summary of a detailed qualification assessment.
-
-## YOUR TASK:
-Review the provided qualification note and extract the key points to create a brief summary (2-3 paragraphs maximum) that includes:
-
-1. **Overall Fit Assessment** - The candidate's fit level (Exceptional/Strong/Good/Moderate/Weak/Poor Fit)
-2. **Key Strengths** - Top 2-3 most relevant strengths from recent experience
-3. **Primary Concerns** - Main gaps or concerns (if any)
-4. **Recommendation** - The recommendation (ADVANCE/PROCEED WITH CAUTION/DO NOT ADVANCE)
-
-## LANGUAGE REQUIREMENT:
-**IMPORTANT:** Generate the summary in **{language}**. All content must be written in {language}.
-
-## OUTPUT FORMAT:
-Provide a well-structured, professional summary in plain text (no HTML). Keep it concise and actionable. Write entirely in **{language}**.
-
-## QUALIFICATION NOTE:
-{qualification_note}
-
-## YOUR SUMMARY:""".format(qualification_note=qualification_note, language=language)
-    
-    try:
-        # Call OpenRouter (returns content and LLM duration)
-        response_text, llm_duration = call_openrouter(
-            messages=[
-                {
-                    "role": "user",
-                    "content": summary_prompt
-                }
-            ],
-            max_tokens=500,  # Shorter for summary
-            generation_name="qualification_summary",
-            langfuse_parent=langfuse_parent,
-            langfuse_prompt=None,
-            session_id=session_id,
-            model=model
-        )
-        
-        print(f"✓ Generated qualification summary ({len(response_text)} chars, LLM: {llm_duration:.2f}s)")
-        
-        return response_text.strip()
-        
-    except Exception as e:
-        print(f"❌ Qualification summary generation failed: {e}")
         raise
 
 

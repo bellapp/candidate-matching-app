@@ -28,7 +28,6 @@ from test_matching_score import (
     score_criteria_with_llm,
     calculate_matching_score,
     generate_qualification_note,
-    generate_qualification_summary,
     EvaluationRubric,
     CriterionScore
 )
@@ -150,12 +149,12 @@ def format_score_color(score: int) -> str:
 
 def main():
     st.set_page_config(
-        page_title="Candidate Matching Score V2",
-        page_icon="⛳",
+        page_title="Candidate Matching Score",
+        page_icon="🎯",
         layout="wide"
     )
     
-    st.title("⛳ Candidate Matching Score V2")
+    st.title("🎯 Candidate Matching Score")
     st.markdown("Evaluate candidate CVs against job postings using AI-powered criteria scoring")
     
     # Sidebar for API key and settings
@@ -165,27 +164,6 @@ def main():
        
         api_key = os.getenv("OPENROUTER_API_KEY")
         test_matching_score.OPENROUTER_API_KEY = api_key
-        
-        st.divider()
-        
-        # Language selection
-        st.subheader("🌐 Language")
-        language_options = {
-            "English": "English",
-            "French": "French",
-            "Spanish": "Spanish",
-            "German": "German",
-            "Dutch": "Dutch",
-            "Italian": "Italian",
-            "Portuguese": "Portuguese"
-        }
-        selected_language = st.selectbox(
-            "Select language for qualification note:",
-            options=list(language_options.keys()),
-            index=0,  # Default to English
-            help="The qualification note will be generated in the selected language"
-        )
-        language = language_options[selected_language]
         
         st.divider()
         
@@ -357,9 +335,6 @@ def main():
             candidate_name = uploaded_file.name if uploaded_file else "unknown"
             
             # LANGFUSE: Generate session ID for grouping all observations
-            # In Langfuse SDK v3.x, we pass session_id directly to each generation
-            # All generations with the same session_id will be grouped together
-            langfuse_trace = None  # Not used in v3.x, kept for compatibility
             session_id = None
             if LANGFUSE_ENABLED and langfuse is not None:
                 import hashlib
@@ -369,8 +344,8 @@ def main():
             
             # Step 1: Extract Rubric
             step1_start = time.time()
-            status_text.text("📋 Step 1/5: Extracting evaluation criteria from job posting...")
-            progress_bar.progress(15)
+            status_text.text("📋 Step 1/4: Extracting evaluation criteria from job posting...")
+            progress_bar.progress(20)
             
             with st.spinner("Analyzing job posting..."):
                 rubric = extract_rubric_with_llm(
@@ -378,95 +353,59 @@ def main():
                     use_cache=use_cache,
                     prompt_version=prompt_version,
                     prompt_label=prompt_label,
-                    langfuse_parent=langfuse_trace,  # Not used in v3.x, kept for compatibility
-                    session_id=session_id,  # Pass session_id to group all operations
+                    session_id=session_id,
                     model=selected_model
                 )
             
             step_times['rubric_extraction'] = time.time() - step1_start
             timing_container.info(f"⏱️ Step 1 completed in {step_times['rubric_extraction']:.2f}s")
             
-            progress_bar.progress(30)
+            progress_bar.progress(40)
             
             # Step 2: Score Criteria
             step2_start = time.time()
-            status_text.text("📊 Step 2/5: Scoring candidate against criteria...")
-            progress_bar.progress(45)
+            status_text.text("📊 Step 2/4: Scoring candidate against criteria...")
+            progress_bar.progress(60)
             
             with st.spinner("Evaluating candidate..."):
                 criteria_scores = score_criteria_with_llm(
                     cv_text, 
                     rubric,
-                    langfuse_parent=langfuse_trace,  # Not used in v3.x, kept for compatibility
-                    session_id=session_id,  # Pass session_id to group all operations
+                    session_id=session_id,
                     model=selected_model
                 )
             
             step_times['criteria_scoring'] = time.time() - step2_start
             timing_container.info(f"⏱️ Steps 1-2 completed in {sum(step_times.values()):.2f}s (Step 2: {step_times['criteria_scoring']:.2f}s)")
             
-            progress_bar.progress(55)
+            progress_bar.progress(70)
             
             # Step 3: Calculate Final Score
             step3_start = time.time()
-            status_text.text("🎯 Step 3/5: Calculating final matching score...")
-            progress_bar.progress(65)
+            status_text.text("🎯 Step 3/4: Calculating final matching score...")
+            progress_bar.progress(80)
             
             result = calculate_matching_score(rubric, criteria_scores)
             
             step_times['score_calculation'] = time.time() - step3_start
             timing_container.info(f"⏱️ Steps 1-3 completed in {sum(step_times.values()):.2f}s (Step 3: {step_times['score_calculation']:.2f}s)")
             
-            progress_bar.progress(75)
-            
-            # Format rubric and criteria scores text for qualification note
-            rubric_text = "\n".join([
-                f"- {c.name} (Weight: {c.weight:.1f}%): {c.description}"
-                for c in rubric.criteria
-            ])
-            
-            criteria_scores_text = "\n".join([
-                f"- {cs.criteria_name}: {cs.score}/100 - Evidence: {cs.evidence or 'N/A'}"
-                for cs in criteria_scores
-            ])
+            progress_bar.progress(85)
             
             # Step 4: Generate Qualification Note
             step4_start = time.time()
-            status_text.text(f"📝 Step 4/5: Generating qualification note ({language})...")
-            progress_bar.progress(85)
+            status_text.text("📝 Step 4/4: Generating qualification note...")
+            progress_bar.progress(90)
             
-            with st.spinner(f"Generating comprehensive qualification assessment in {language}..."):
+            with st.spinner("Generating comprehensive qualification assessment..."):
                 qualification_note = generate_qualification_note(
                     job_posting,
                     cv_text,
-                    rubric_text=rubric_text,
-                    criteria_scores_text=criteria_scores_text,
-                    language=language,
-                    langfuse_parent=langfuse_trace,  # Not used in v3.x, kept for compatibility
-                    session_id=session_id,  # Pass session_id to group all operations
+                    session_id=session_id,
                     model=selected_model
                 )
             
             step_times['qualification_generation'] = time.time() - step4_start
-            timing_container.info(f"⏱️ Steps 1-4 completed in {sum(step_times.values()):.2f}s (Step 4: {step_times['qualification_generation']:.2f}s)")
-            
-            progress_bar.progress(92)
-            
-            # Step 5: Generate Qualification Summary
-            step5_start = time.time()
-            status_text.text("📄 Step 5/5: Generating qualification summary...")
-            progress_bar.progress(95)
-            
-            with st.spinner(f"Generating concise summary in {language}..."):
-                qualification_summary = generate_qualification_summary(
-                    qualification_note,
-                    language=language,
-                    langfuse_parent=langfuse_trace,  # Not used in v3.x, kept for compatibility
-                    session_id=session_id,  # Pass session_id to group all operations
-                    model=selected_model
-                )
-            
-            step_times['qualification_summary'] = time.time() - step5_start
             total_time = time.time() - total_start
             
             # Display final timing summary
@@ -476,7 +415,6 @@ def main():
             - Step 2 (Criteria Scoring): {step_times['criteria_scoring']:.2f}s
             - Step 3 (Score Calculation): {step_times['score_calculation']:.2f}s
             - Step 4 (Qualification Note): {step_times['qualification_generation']:.2f}s
-            - Step 5 (Qualification Summary): {step_times['qualification_summary']:.2f}s
             """)
             
             # LANGFUSE: Flush any pending events
@@ -594,15 +532,6 @@ def main():
             # Download results as JSON
             st.divider()
             
-            # Qualification Summary Display
-            st.header("📄 Qualification Summary")
-            st.markdown("""
-            A concise executive summary of the candidate's qualification assessment.
-            """)
-            st.info(qualification_summary)
-            
-            st.divider()
-            
             # Qualification Note Display
             st.header("📝 Candidate Qualification Note")
             st.markdown("""
@@ -681,7 +610,6 @@ def main():
             
             results_json = {
                 "final_score": final_score,
-                "qualification_summary": qualification_summary,
                 "qualification_note": qualification_note,
                 "rubric": {
                     "criteria": [

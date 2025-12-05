@@ -40,3 +40,6 @@ rubric_cache/
 
 # Logs
 *.log
+
+scripts/
+compare/
