@@ -2864,293 +2864,356 @@ Before finalizing your score, verify:
 - ✅ "Weak Fit" + "DO NOT ADVANCE" + score 42"""
 
 
-CRITERIA_SCORING_PROMPT = """You are evaluating a candidate against specific criteria extracted from a job posting.
+RUBRIC_EXTRACTION_PROMPT = """
+You are an expert recruiter tasked with extracting evaluation criteria from a job posting.
 
 ## YOUR MISSION
-Score the candidate (0-100) on EACH provided criterion based on their resume and the qualification context.
+Analyze the job posting and create a weighted scoring rubric with specific criteria that will be used to evaluate candidates.
 
-## ⚠️ CRITICAL SCORING PRINCIPLE
-**Score RELATIVE to the job requirement, not in absolute terms!**
+## CRITERIA CATEGORIES
 
-The score answers: **"How well does the candidate's level match what THIS job needs?"**
+Extract criteria from these categories (only if relevant to the job):
 
-## 🎯 OBJECTIVE EXPERIENCE COUNTING RULES
+1. **Job Title Match** (10-20 weight)
+   - How well candidate's current/past titles align with the target role
+   - More weight if specific title history is critical (e.g., "Must have been a Director")
 
-### What Counts as Professional Experience:
+2. **Experience Years** (15-25 weight)
+   - Total years of relevant experience required
+   - More weight for senior roles or highly specialized fields
+   
+   **⚠️ ROLE CONTEXT REQUIRED:**
+   - Specify the TYPE of role/work (e.g., "5+ years in Electrical Maintenance roles", NOT just "5+ years electrical")
+   - Include what they should have been DOING (e.g., "hands-on electrical work", "field maintenance", "not design/engineering")
+   - Specify the SECTOR if critical (e.g., "in Steel/Cement/Energy sectors")
+   - If no digits, use phrases like: "Extensive experience in [Role Type]" or "Professional background in [Sector]".
+   
+   **Examples:**
+   - ✅ "5+ years in Heavy Industry Electrical Maintenance (hands-on field work, not automation/IT/design)"
+   - ✅ "8+ years in B2B Enterprise Software Sales (SaaS, not retail or inside sales)"
+   - ✅ "3+ years as ICU Nurse (bedside care, not administration or education)"
+   - ❌ "5+ years experience" (too vague - experience doing what?)
+   - ❌ "8+ years in healthcare" (missing role context - as what? Nurse? Administrator?)
+   - ❌ "5+ years electrical" (too broad - Electrician? Engineer? Automation? Design?)
 
-**For Junior Positions (0-2 years required):**
-- ✅ Full-time professional roles (count 100%)
-- ✅ Internships/Trainee/Stage positions (count 100%)
-- ✅ Part-time professional work (count pro-rated)
-- ✅ Freelance/Contract work (count 100%)
-- ⚠️ Personal projects (count as supplementary, not primary)
-- ❌ School projects/coursework (don't count as professional experience)
+3. **Seniority & Leadership** (5-15 weight)
+   - Scope of responsibility, team size managed, budget authority, or strategic impact
+   - More weight for management or executive positions
+   - **Instruction:** When specifying team size, allow for reasonable flexibility (e.g., "Manage team of 20-30 people" rather than "Manage exactly 28 people").
 
-**For Medior Positions (2-5 years required):**
-- ✅ Full-time professional roles (count 100%)
-- ✅ Freelance/Contract work (count 100%)
-- ⚠️ Part-time professional work (count 50-75% depending on hours)
-- ❌ Internships/Trainee/Stage positions (DO NOT COUNT - these are junior-level learning roles)
-- ❌ Personal projects (don't count)
-- ❌ School projects (don't count)
+4. **Hard Skills & Core Competencies** (20-35 weight)
+   - Specific tools, software, machinery, clinical skills, sales techniques, or methodologies
+   - Break down by: Required (must-have) vs Preferred (nice-to-have)
+   - ⚠️ **CRITICAL:** Include the REQUIRED PROFICIENCY LEVEL (e.g., "Expert usage of Excel", "Board Certified", "Proficient with heavy machinery", "Advanced GAAP knowledge")
+   
+   **⚠️ SPLITTING RULE FOR SPECIALIZED SKILLS:**
+   - **IF** the job mentions BOTH general and specialized/critical sub-skills in the same domain, **CREATE SEPARATE CRITERIA**
+   - This prevents candidates with only general experience from scoring high on critical specializations
+   
+   **Examples of when to SPLIT:**
+   - "Electrical experience including High Voltage (HT/THT)" → Create TWO criteria:
+     - "Hard Skills - Industrial Electricity (General)" (weight: 10) - "Electrical maintenance, motors, distribution panels, control systems"
+     - "Hard Skills - High Voltage (HT/THT)" (weight: 15) - "High Voltage/Very High Voltage installations (HT/THT cabins, multi-MW equipment). CRITICAL REQUIREMENT."
+   
+   - "Nursing with ICU specialization required" → Create TWO criteria:
+     - "Hard Skills - General Nursing" (weight: 10) - "RN license, patient care, medication administration"
+     - "Hard Skills - ICU Specialization" (weight: 15) - "Critical care, ventilator management, ICU protocols. MANDATORY."
+   
+   - "Cloud experience, AWS required" → Create TWO criteria:
+     - "Hard Skills - Cloud Computing (General)" (weight: 8) - "Cloud architecture, deployment, CI/CD"
+     - "Hard Skills - AWS Specific" (weight: 12) - "AWS services (EC2, S3, Lambda, RDS). REQUIRED."
+   
+   **Examples of when NOT to split (keep together):**
+   - "React and Next.js" → Keep as ONE criterion if both are equally important
+   - "Python and Django" → Keep as ONE if they're always used together
+   - "AutoCAD and Revit" → Keep as ONE unless one is explicitly more critical
+   
+   **CRITICAL MARKER:**
+   - If a sub-skill is absolutely required and cannot be learned on the job, add "CRITICAL REQUIREMENT" or "MANDATORY" to the description
+   - If missing this skill is a deal-breaker, add "BLOCKING REQUIREMENT" to the description
 
-**For Senior Positions (5+ years required):**
-- ✅ Full-time professional roles with increasing responsibility (count 100%)
-- ✅ Freelance/Contract work with senior-level clients (count 100%)
-- ⚠️ Part-time professional work (count 50-75% depending on hours and responsibility)
-- ❌ Internships/Trainee/Stage positions (DO NOT COUNT)
-- ❌ Junior-level roles without progression (count only 50-75%)
-- ❌ Personal projects (don't count)
+5. **Soft Skills & Traits** (5-15 weight)
+   - Communication, negotiation, empathy, physical stamina, attention to detail
+   - More weight if explicitly emphasized (e.g., Sales, Customer Service, Caregiving)
 
-### Identifying Role Types:
-- **Trainee/Intern/Stage/Stagiaire**: Learning-focused roles, typically 3-12 months, supervised work
-- **Junior/Developer**: First professional role, 0-2 years post-graduation
-- **Medior/Mid-level**: Independent contributor, 2-5 years experience
-- **Senior**: Autonomous expert, mentor others, 5+ years experience
+6. **Industry Experience** (5-15 weight)
+   - Specific sector background (e.g., "Experience in Automotive manufacturing", "Retail fashion background")
+   - More weight if domain context is critical for success
+   
+   **⚠️ ROLE RELEVANCE REQUIRED - Specify BOTH industry AND role type:**
+   - Don't just state the industry name - specify the TYPE of role within that industry
+   - Explain WHY the industry matters (domain-specific knowledge or challenges)
+   - Include what they should have been doing in that industry
+   - **Important:** Explicitly mention that EQUIVALENT highly complex/regulated industries are acceptable matches (e.g., Nuclear, Aerospace, Pharma for Heavy Industry requirements).
+   
+   **Examples:**
+   - ✅ "Heavy Process Industry (Steel, Cement, Energy) OR Equivalent High-Complexity Environment (Nuclear, Aerospace) in an Electrical Maintenance role - understanding of 24/7 continuous operations, safety-critical environments, high-power equipment maintenance cycles (NOT automation/IT/process engineering)"
+   - ✅ "Healthcare/Hospital setting as bedside clinician (NOT administration) - familiarity with HIPAA compliance, patient confidentiality protocols, clinical workflows, and EHR systems"
+   - ✅ "Financial Services/Banking in Compliance or Audit roles (NOT IT or sales) - understanding of regulatory frameworks (SOX, Basel III, AML), risk management, and audit procedures"
+   - ✅ "Automotive Manufacturing as Production/Maintenance Engineer (NOT design) - knowledge of lean production, JIT inventory, automotive quality standards (IATF 16949)"
+   - ❌ "Heavy Industry" (missing role context - as Electrician? Engineer? IT? Manager?)
+   - ❌ "Healthcare experience" (missing role - as Nurse? Administrator? IT?)
+   - ❌ "Steel industry background" (doing what? Electrical? Automation? Production? Safety?)
 
-**Examples:**
-- **Job needs: Senior React Developer (5+ years)**
-  - Candidate has: 6 months trainee + 7 months developer → **Professional experience: 7 months** → Score: **35-40** (far below requirement)
-  - Candidate has: 1 year intern + 3 years developer → **Professional experience: 3 years** → Score: **65-70** (below senior level)
-  - Candidate has: 6 months intern + 6 years developer → **Professional experience: 6 years** → Score: **90-95** (meets requirement)
+7. **Languages** (5-20 weight)
+   - Required language proficiencies
+   - More weight if client-facing or international role
 
-- **Job needs: Junior React Developer (6 months+)**
-  - Candidate has: 7 months trainee → Score: **80-85** (matches junior requirement)
-  - Candidate has: 3 years developer → Score: **95-100** (exceeds requirement)
+8. **Location & Travel** (0-10 weight)
+   - On-site requirements, travel percentage, valid driver's license
+   - More weight for roles where physical presence is mandatory (e.g., Nursing, Construction)
 
-- **Job needs: Medior Frontend (3+ years)**
-  - Candidate has: 1 year intern + 1 year developer → **Professional experience: 1 year** → Score: **45-50** (far below medior)
-  - Candidate has: 6 months intern + 3 years developer → **Professional experience: 3 years** → Score: **80-85** (matches medior)
-  - Candidate has: 5 years developer → **Professional experience: 5 years** → Score: **95-100** (exceeds medior)
+9. **Education, Licenses & Certifications** (5-20 weight)
+   - Degrees, mandatory licenses (e.g., CPA, RN, PE, Bar Exam), or safety certifications
+   - **High weight** for regulated industries (Healthcare, Law, Engineering)
+   - **Instruction:** Note that extensive relevant experience (10+ years) can often substitute for a specific degree level, unless legally required (e.g., Doctor, Lawyer, PE license).
 
-**Scoring Logic:**
-1. **Identify the required seniority level** (junior/medior/senior)
-2. **Count ONLY relevant experience** based on the rules above
-3. **Compare candidate's qualifying experience** to requirement
-4. **Score the GAP**, not the absolute skill level
+10. **Domain Knowledge** (5-15 weight)
+    - Knowledge of specific regulations (HIPAA, OSHA), markets, or competitors
+    - More weight if niche knowledge is required
 
-## SCORING GUIDELINES
+## CRITICAL INSTRUCTION FOR DESCRIPTIONS
 
-### Score Ranges:
-- **90-100:** Exceeds expectations - candidate has exceptional strength in this area
-- **80-89:** Fully meets - strong alignment, no concerns
-- **70-79:** Mostly meets - good alignment with minor gaps
-- **60-69:** Partially meets - acceptable but notable gaps
-- **50-59:** Barely meets - significant concerns but not disqualifying
-- **30-49:** Does not meet - requirement not satisfied (if required, this may be blocking)
-- **0-29:** Completely missing - no evidence of this competency
+⚠️ **Each criterion description MUST include the required level/experience/certification:**
 
-### Scoring Logic by Criteria Type:
+**For Hard Skills/Competencies:**
+- Extract the required proficiency level or context
+- Include years if mentioned
+- If splitting specialized skills, clearly mark which is CRITICAL/MANDATORY
+- Examples:
+  - ✅ "Advanced GAAP accounting knowledge (5+ years)"
+  - ✅ "Proficient in Adobe Creative Suite (Photoshop/Illustrator)"
+  - ✅ "Certified Forklift Operator (Current license)"
+  - ✅ "Demonstrated success in B2B Enterprise Sales ($1M+ quota)"
+  - ✅ "High Voltage (HT/THT) certification and hands-on experience. CRITICAL REQUIREMENT."
+  - ❌ "Accounting" (too vague)
+  - ❌ "Sales" (missing context)
+  - ❌ "Electrical experience" (too broad - general or specialized? Maintenance or design?)
 
-**Experience Years:**
-Apply experience counting rules above, then score:
-- **Formula: (Qualified Experience / Required Experience) × 100, capped at 100**
-- 100: 2x+ required years of qualifying experience
-- 85-95: Exceeds requirement by 20-50%
-- 80-84: Meets requirement exactly (within ±10%)
-- 70-79: Within 80-90% of requirement (e.g., 2.5 years for 3 years)
-- 60-69: Within 60-80% of requirement (e.g., 2 years for 3 years)
-- 50-59: Within 40-60% of requirement (e.g., 1.5 years for 3 years)
-- 30-49: Within 20-40% of requirement (e.g., 1 year for 3 years)
-- 0-29: <20% of requirement (e.g., <1 year for 5 years)
+**For Education/Licenses:**
+- Be explicit: "Bachelor's in Nursing (BSN)", "Active CPA license", "PMP Certification"
 
-**Technical Skills (OBJECTIVE SCORING):**
-⚠️ **CRITICAL:** Technical skill scoring MUST consider BOTH years of experience AND required seniority level.
+**For Seniority:**
+- Specify: "Mid-level", "Senior Management", "Entry-level", "Executive"
 
-**Step 1: Identify Required Seniority Level from Description:**
-- **Junior:** 0-2 years, basic understanding, can work with guidance
-- **Medior/Mid-level:** 2-5 years, independent work, solid understanding
-- **Senior/Expert:** 5+ years, deep expertise, can architect solutions, mentor others
+**For Experience Years:**
+- Include role context: "5+ years as [specific role]", "8+ years in [specific type of work]"
 
-**Step 2: Count Qualifying Experience with the Technology:**
-- Use experience counting rules above based on required seniority
-- Count ONLY professional use of the technology
-- For medior/senior: DO NOT count trainee/intern periods with that tech
+**For Industry Experience:**
+- Include role context: "[Industry] as/in [role type]", "[Industry] doing [type of work]"
 
-**Step 3: Apply Objective Scoring Formula:**
+## WEIGHTING GUIDELINES
 
-**For Junior-Level Technical Skills (0-2 years required):**
-- Candidate has ≥2 years: **95-100** (exceeds)
-- Candidate has 1-2 years: **80-90** (meets fully)
-- Candidate has 6-12 months: **70-79** (mostly meets)
-- Candidate has 3-6 months: **60-69** (partially meets)
-- Candidate has <3 months or only mentioned: **40-59** (barely meets)
-- No evidence: **0-30** (does not meet)
-
-**For Medior-Level Technical Skills (2-5 years required):**
-- Candidate has ≥5 years professional: **95-100** (exceeds)
-- Candidate has 3-5 years professional: **80-90** (meets fully)
-- Candidate has 2-3 years professional: **70-79** (mostly meets)
-- Candidate has 1-2 years professional: **50-69** (below medior)
-- Candidate has <1 year professional: **30-49** (far below medior)
-- Candidate has only intern/trainee experience: **20-35** (junior level, not medior)
-- No evidence: **0-20** (does not meet)
-
-**For Senior/Expert-Level Technical Skills (5+ years required):**
-- Candidate has ≥8 years professional: **95-100** (exceeds)
-- Candidate has 5-8 years professional: **80-90** (meets fully)
-- Candidate has 3-5 years professional: **60-75** (below senior, medior level)
-- Candidate has 2-3 years professional: **45-59** (medior level, not senior)
-- Candidate has 1-2 years professional: **30-44** (junior level)
-- Candidate has <1 year or only trainee: **10-29** (far below senior)
-- No evidence: **0-10** (does not meet)
-
-**IMPORTANT: Technical skills must align with overall seniority requirement!**
-- If job requires **Senior** level, ALL technical skills should use Senior scoring
-- If job requires **Medior** level, ALL technical skills should use Medior scoring
-- If job requires **Junior** level, ALL technical skills should use Junior scoring
-
-**Examples with Objective Scoring:**
-- **Requirement: "Expert React.js (5+ years)" (Senior level)**
-  - Candidate: 6 months trainee + 7 months developer React = **7 months professional** → Score: **25-30** (far below senior)
-  - Candidate: 1 year trainee + 3 years developer React = **3 years professional** → Score: **60-65** (medior level, below senior)
-  - Candidate: 6 months trainee + 6 years developer React = **6 years professional** → Score: **85-90** (meets senior requirement)
-
-- **Requirement: "React.js experience" (Medior level, 3+ years)**
-  - Candidate: 1 year trainee + 1 year developer React = **1 year professional** → Score: **50-55** (below medior)
-  - Candidate: 6 months trainee + 3 years developer React = **3 years professional** → Score: **80-85** (meets medior)
-  - Candidate: 5 years professional React = **5 years professional** → Score: **95-100** (exceeds medior)
-
-- **Requirement: "React.js" (Junior level, 6+ months)**
-  - Candidate: 7 months trainee React = **7 months** → Score: **80-85** (meets junior)
-  - Candidate: 3 years professional React = **3 years** → Score: **95-100** (exceeds junior)
-
-**Languages:**
-- Match stated proficiency to requirement
-- 100: Native or C2 level
-- 90: Fluent/C1
-- 80: Professional/B2
-- 70: Intermediate/B1
-- 60: Basic/A2
-- <60: No evidence or elementary
-
-**Job Title Match:**
-- Assess role similarity and progression
-- 90-100: Exact or more senior equivalent title
-- 80-89: Adjacent role with similar responsibilities
-- 70-79: Related but different focus area
-- 60-69: Tangential experience
-- <60: Unrelated roles
-
-**Seniority Level (OBJECTIVE SCORING):**
-
-**Step 1: Identify Required Seniority:**
-- Junior: 0-2 years experience
-- Medior/Mid-level: 2-5 years experience
-- Senior: 5+ years experience
-- Lead/Principal: 8+ years experience
-
-**Step 2: Count Candidate's Qualifying Experience:**
-- Use experience counting rules (exclude trainee for medior/senior)
-- Consider role titles and responsibilities
-
-**Step 3: Apply Objective Score:**
-
-**For Junior Position:**
-- Candidate has medior/senior level (3+ years): **95-100** (exceeds)
-- Candidate has 1-2 years: **80-90** (meets)
-- Candidate has 6-12 months including trainee: **70-79** (mostly meets)
-- Candidate has <6 months: **50-69** (entry level)
-
-**For Medior Position:**
-- Candidate has senior level (5+ years): **95-100** (exceeds)
-- Candidate has 3-5 years professional: **80-90** (meets medior)
-- Candidate has 2-3 years professional: **70-79** (lower medior)
-- Candidate has 1-2 years professional: **50-65** (junior level)
-- Candidate has <1 year or only trainee: **30-49** (far below medior)
-
-**For Senior Position:**
-- Candidate has 8+ years with leadership: **95-100** (exceeds)
-- Candidate has 5-8 years professional: **80-90** (meets senior)
-- Candidate has 3-5 years professional: **60-75** (medior level, below senior)
-- Candidate has 2-3 years professional: **40-55** (junior/medior)
-- Candidate has <2 years or includes trainee: **20-39** (far below senior)
-
-**Industry Experience:**
-- Check for specific industry background
-- 90-100: Extensive experience in exact industry
-- 80-89: Solid experience in same industry
-- 70-79: Adjacent industry or some exposure
-- 60-69: Different but transferable industry
-- <60: No relevant industry experience
-
-**Location:**
-- Geographic fit
-- 100: Already in location or explicitly willing
-- 80: Adjacent location, easy commute
-- 60: Different location but mentions flexibility
-- 40: Remote candidate for on-site role
-- 0: Location mismatch with no flexibility
-
-**Education:**
-- Match degree level and field
-- 100: Exceeds requirement (e.g., PhD for Master's role)
-- 90: Exact match
-- 80: Close match (related field)
-- 70: Lower level but compensated by experience
-- <70: Significant gap
+- Total weights MUST sum to 100
+- Assign higher weights to:
+  - **Mandatory Licenses/Degrees** (especially in Law, Health, Engineering)
+  - Explicitly stated "must-haves" or "required"
+  - Hard skills necessary to perform the daily tasks
+  - Specialized/critical sub-skills that are blocking requirements
+  
+- Assign lower weights to:
+  - "Nice to have" or "preferred"
+  - General skills easily taught on the job
+  - Generic soft skills (unless the role is purely relationship-based)
+  - General/foundational skills when a specialization is the true requirement
 
 ## OUTPUT FORMAT
 
-Return ONLY valid JSON with NO additional text:
+Return ONLY a valid JSON object:
 
+{{
+  "criteria": [
+    {{ "name": "Experience Years", "weight": 20, "description": "5+ years in Heavy Industry Electrical Maintenance (hands-on field work, not automation/IT/design) in Steel/Cement/Energy sectors", "is_required": true }},
+    {{ "name": "Hard Skills - Industrial Electricity (General)", "weight": 10, "description": "Electrical maintenance, motors, distribution panels, control systems", "is_required": true }},
+    {{ "name": "Hard Skills - High Voltage (HT/THT)", "weight": 15, "description": "High Voltage/Very High Voltage installations (HT/THT cabins, multi-MW equipment like 11MW grinders). CRITICAL REQUIREMENT.", "is_required": true }},
+    {{ "name": "Seniority & Leadership", "weight": 15, "description": "Management of 28-person team (workers, technicians, engineers, union delegates) with 4 direct reports", "is_required": true }},
+    {{ "name": "Industry Experience", "weight": 15, "description": "Heavy Process Industry (Steel, Cement, Energy) in an Electrical Maintenance role - understanding of 24/7 continuous operations, safety-critical environments, high-power equipment maintenance (NOT automation/IT)", "is_required": true }},
+    {{ "name": "Languages - English", "weight": 10, "description": "English B1-B2 minimum for technical documentation and international exchanges", "is_required": true }},
+    {{ "name": "Education", "weight": 10, "description": "Industrial or Civil Engineering degree (Bachelor's acceptable with strong experience)", "is_required": true }},
+    {{ "name": "Domain Knowledge", "weight": 5, "description": "Experience with site transformation projects (e.g., zero carbon initiatives)", "is_required": false }}
+  ],
+  "total_weight": 100
+}}
+
+Job Posting:
+{{job_posting}}"""
+
+CRITERIA_SCORING_PROMPT = """You are an algorithmic HR evaluator designed to screen candidates with strict, unbiased logic.
+
+## YOUR MISSION
+Compare the **Candidate CV** against the **Evaluation Rubric**. You must generate a score (0-100) for EACH criterion based **solely** on the evidence provided.
+
+## 📥 INPUT DATA
+**Rubric:**
+{{rubric_text}}
+
+**Candidate CV:**
+{{cv_profile}}
+
+---
+
+## ⚙️ THE SCORING ALGORITHM (STRICTLY FOLLOW THESE STEPS)
+
+### STEP 1: CALCULATE TENURE (The "Math" Step)
+For every "Hard Skill" or "Experience" criterion, you must first calculate the **Net Professional Duration**:
+* **"Present" / "Current":** If a role ends in "Present", "Current", or "Now", calculate the duration up to **{{current_date}}**.
+* **Internships/Training:** Count as **0.5x** (e.g., 6 months intern = 3 months experience).
+* **Professional Roles:** Count as **1.0x**.
+* **Concurrent Roles:** Do not double count overlapping dates.
+* **Legacy/Dormant:** If a skill was last used >5 years ago, apply a **50% penalty** to its duration.
+
+### STEP 2: DETERMINE ALIGNMENT (The "Level" Step)
+Compare the Candidate's Calculated Duration to the Job Requirement:
+* **Level 1 (Entry):** Job requires < 2 years.
+* **Level 2 (Mid):** Job requires 2-5 years.
+* **Level 3 (Senior):** Job requires 5+ years.
+
+### STEP 3: ASSIGN SCORE (The "Matrix" Step)
+
+**RULE A: The Seniority Gap (Crucial)**
+* **IF** Candidate is Level 1 (< 1 year) **AND** Job is Level 3 (Senior):
+    * **MAXIMUM SCORE IS 40.** (No exceptions, even if they list the skill).
+* **IF** Candidate is Level 2 (Mid) **AND** Job is Level 3 (Senior):
+    * **MAXIMUM SCORE IS 65.**
+
+**RULE B: The "Missing Component" Penalty**
+* **IF** a criterion lists multiple specific tools (e.g., "React AND Jest AND Cypress") but the candidate only has one (e.g., "React"):
+    * **Score must be < 50.** (Partial matches are failing grades for Senior roles).
+    * **Exception:** If the rubric says "OR" (e.g., "React OR Vue"), one match is sufficient for a high score.
+
+### STEP 4: LANGUAGE SCORING (THE "MAX VALUE" PROTOCOL)
+**CRITICAL:** Do NOT average scores. Do NOT stop early. You must calculate TWO scores and pick the highest.
+
+**CALCULATION A: EXPLICIT SCORE**
+* Scan "Skills/Summary" for listed languages.
+* Score based on stated proficiency (Native/C2=100, Fluent=90, Intermediate=70, Basic=40).
+* **If no languages listed, Score A = 0.**
+
+**CALCULATION B: INFERRED SCORE (The "Location" Rule)**
+* Check the **Candidate Location** and **CV Language**.
+* **IF** Location is in **Morocco, France, Quebec, Tunisia, or Belgium**:
+    * **Score B = 75** (Assumes bilingual proficiency).
+* **ELSE IF** CV is in English but Location is non-Francophone:
+    * **Score B = 60** (English proficiency only).
+* **ELSE**:
+    * **Score B = 0**.
+
+**FINAL DECISION:**
+* **FINAL SCORE = The HIGHER of (Score A) or (Score B).**
+* **Evidence:** If you used Score B, you MUST write: *"No explicit languages listed. Score 75 inferred from Location ({City, Country})."*
+
+---
+
+### STEP 5: ROLE RELEVANCE CHECK (Industry/Experience Criteria Only)
+
+**CRITICAL RULE:** Same industry ≠ Same role ≠ Relevant experience
+
+When scoring "Industry Experience" or "Experience Years" criteria:
+
+**Step 1: Check if criterion specifies a role type**
+- Look for: "as [role]", "in [function] role", "doing [work type]", "(NOT [excluded roles])"
+- Example: "5+ years in Electrical Maintenance role (NOT automation/IT)"
+- **If NO role specified**, skip this step and score normally.
+
+**Step 2: Identify candidate's actual role**
+- What was their job title? (e.g., "Automation Engineer" ≠ "Maintenance Engineer")
+- What did they actually do? (check responsibilities, not just company name)
+
+**Step 3: Apply alignment multiplier:**
+
+| Industry Match | Role Match | Multiplier | Example |
+|---|---|---|---|
+| ✅ | ✅ Direct | 100% | Electrical Maintenance for Electrical Maintenance job |
+| ✅ | ⚠️ Adjacent | 50-70% | Automation Engineer for Electrical job (some overlap) |
+| ✅ | ❌ Unrelated | 20-40% | IT role for Field Technician job (wrong function) |
+| ❌ | N/A | 0-20% | Different industry entirely |
+
+**Step 4: Calculate adjusted score:**
+- Count years in roles matching the criterion
+- Apply multiplier: Effective Years = Raw Years × Multiplier
+- Score based on effective years vs requirement
+
+**Example:**
+```
+Criterion: "5+ years in Industrial Electrical Maintenance (hands-on field work, NOT automation)"
+Candidate: 6 years in Steel plant as "Automation Engineer" (SCADA, PLCs)
+
+Analysis:
+- Industry: ✅ Steel = Industrial
+- Role: ❌ "Automation" ≠ "Electrical Maintenance"
+- Alignment: Adjacent (60% - environmental exposure to electrical)
+- Effective: 6 years × 0.6 = 3.6 years
+- Score: 3.6/5 = 72% → 55-60/100
+
+Evidence: "6 years in Steel (industry match) but as Automation Engineer (SCADA/PLCs), NOT Electrical Maintenance role. Adjacent function."
+Gap: "Requirement is Electrical Maintenance (hands-on field work). Candidate's role was Automation/IT systems."
+```
+
+**Red Flags for Wrong Role:**
+- Title mismatch (Administrator ≠ Clinician, Sales ≠ Developer, Automation ≠ Electrician)
+- Responsibilities don't match (IT tasks for Field job, Admin tasks for Clinical job)
+- Phrases like "Gestion de..." (managing) vs hands-on execution
+
+**When to apply:** Only if criterion specifies role context or exclusions. Skip for education, certifications, or soft skills.
+
+---
+
+### STEP 6: FLEXIBILITY & TRANSFERABILITY CHECKS (Apply to All Criteria)
+
+**1. Equivalent Industry Rule (Nuclear/Aerospace/Pharma):**
+- **IF** the job requires "Heavy Industry" (Steel, Cement, Mining),
+- **AND** candidate has **ANY confirmed experience** in **High-Complexity/Regulated Industries** (Nuclear, Aerospace, Pharmaceutical, Oil & Gas), regardless of recency,
+- **THEN** Treat as a **MATCH (85-100% relevant)**.
+- **Logic:** The safety culture and rigor of these industries are permanent assets; recency is less critical than the foundational mindset.
+
+**2. Experience > Degree Rule:**
+- **IF** candidate lacks the exact degree level (e.g., has Bachelor vs Master),
+- **BUT** has **10+ Years of Professional Experience** (Total Career),
+- **THEN** Score **100% for Education**.
+- **Logic:** After 10 years, professional track record completely supersedes academic credentials.
+
+**3. Team Size Flexibility:**
+- **IF** scoring "Management/Leadership",
+- **AND** candidate has managed teams of **15+ people** (for a 28-person requirement),
+- **THEN** Score as **STRONG MATCH (80-100)**.
+- **Logic:** Managing 15+ people proves the capability to handle complexity, HR issues, and planning. The jump to 28 is a natural growth step, not a skill gap.
+
+**4. Field vs. Office Assumption:**
+- **IF** the rubric asks for specific "% field work" (e.g., 60/40 split),
+- **AND** the CV doesn't explicitly state the %,
+- **THEN** **DO NOT PENALIZE** unless the role is clearly incompatible (e.g., 100% remote/strategic role for a field job).
+- **Logic:** CVs rarely specify percentage splits; infer from the role's nature (Operational = Field, Strategic = Office).
+
+**5. High-Stakes Environment Inference (The "Nuclear" Rule):**
+- **IF** candidate has experience in **Ultra-High-Risk Industries** (Nuclear, Petrochemical, Offshore, Power Generation),
+- **AND** the missing hard skill is related to **Safety, Rigor, or High-Energy Systems** (e.g., HT/THT, ATEX, Pressure Vessels),
+- **THEN** **DO NOT SCORE 0**.
+  - **Score 65-80 (Transferable Competence):** For Nuclear/Power Generation backgrounds missing "High Voltage" keywords. The environment inherently trains this awareness.
+  - **Score 50-65 (Partial):** For other high-risk industries.
+- **Logic:** A professional from a nuclear plant has ingrained safety reflexes for high-energy systems that are superior to a candidate with "HT" keywords from a low-risk industry.
+
+---
+
+## 📊 SCORING REFERENCE TABLE
+
+| Score Range | Definition | Logic |
+| :--- | :--- | :--- |
+| **0** | **Missing** | Criterion is not mentioned at all. |
+| **10-40** | **Mismatch** | Candidate has the skill but at a significantly lower seniority than required. |
+| **41-60** | **Weak** | Candidate implies the skill or has very brief exposure (< 1 year). |
+| **61-79** | **Match** | Candidate meets the core requirement but lacks "Senior" depth. |
+| **80-100** | **Perfect** | Candidate meets or exceeds the EXACT years and specific tools requested. |
+
+---
+
+## 🚨 OUTPUT RULES
+
+Return **ONLY valid JSON**. Do not output markdown code blocks or conversational text.
+
+**JSON Structure:**
 ```json
 {{
   "criteria_scores": [
-    {{
-      "criteria_name": "Experience Years",
-      "score": 85,
-      "evidence": "7 years in backend development vs 5+ required",
-      "gap": ""
-    }},
-    {{
-      "criteria_name": "Technical Skills - Python",
-      "score": 90,
-      "evidence": "8+ years Python, led multiple large-scale Python projects",
-      "gap": ""
-    }},
-    {{
-      "criteria_name": "Languages - Dutch",
-      "score": 60,
-      "evidence": "Resume mentions 'basic Dutch', requirement is B2 professional",
-      "gap": "Dutch proficiency below requirement (basic vs B2)"
-    }}
+    {{ "criteria_name": "Exact Name from Rubric", "score": 0, "evidence": "STRICT FORMAT: [Total Months/Years Calculated] of experience. [Quote from CV].", "gap": "Explain WHY the score is low (e.g., 'Target is 5 years, Candidate has 0.6 years'). Leave empty if score > 80." }}
   ]
-}}
-```
-
-## INSTRUCTIONS
-
-1. For EACH criterion provided, evaluate the candidate
-2. **READ THE CRITERION DESCRIPTION CAREFULLY** - it contains the required level (e.g., "Expert React (5+ years)", "Medior/Senior level")
-3. **IDENTIFY THE SENIORITY LEVEL** (Junior/Medior/Senior) from the job description
-4. **COUNT QUALIFYING EXPERIENCE ONLY:**
-   - For Junior: count all professional work including trainee/intern
-   - For Medior/Senior: count ONLY full professional roles, EXCLUDE trainee/intern/stage
-5. **USE OBJECTIVE SCORING FORMULAS** provided above
-6. Compare candidate's level to the REQUIRED level using the objective scoring tables
-7. Score the MATCH between candidate's level and required level (not the absolute skill)
-8. Provide specific evidence from the resume (quote or paraphrase) with:
-   - Exact role titles and durations
-   - Type of experience (professional vs trainee)
-   - Qualifying experience calculation
-9. If score < 80, explain the gap with specific numbers
-10. Be honest and objective - use the formulas, don't inflate scores
-11. If no evidence exists for a criterion, score 0-30 depending on how critical it is
-
-## VALIDATION
-
-Before returning:
-- Check that you've scored EVERY criterion provided
-- Verify you correctly identified the required seniority level (Junior/Medior/Senior)
-- Ensure trainee/intern periods are excluded for Medior/Senior roles
-- Verify each score uses the objective formulas (not subjective assessment)
-- Ensure each score reflects the **GAP** between candidate's level and **REQUIRED** level with numbers
-- Ensure each score has supporting evidence with role types and durations
-- Verify scores are realistic (not all 90s or all 50s)
-- **Double-check examples:**
-  - Senior position (5+ years) + candidate has 7 months professional = **25-30** (not 40-50)
-  - Medior position (3+ years) + candidate has 1 year professional = **50-55** (not 70-80)
-  - Medior position + candidate has 1 year trainee + 3 years professional = **80-85** (count only 3 years)
-  - Senior position + candidate has 6 months trainee + 6 years developer = **85-90** (count only 6 years)
-"""
+}}"""

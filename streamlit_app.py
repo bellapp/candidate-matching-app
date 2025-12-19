@@ -29,6 +29,7 @@ from test_matching_score import (
     calculate_matching_score,
     generate_qualification_note,
     generate_qualification_summary,
+    get_fit_level,
     EvaluationRubric,
     CriterionScore
 )
@@ -81,8 +82,16 @@ try:
                 host=os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
             )
             LANGFUSE_ENABLED = True
-            st.sidebar.success("✓ Langfuse observability enabled (v3.x)")
+            
+            # Try to detect version
+            try:
+                from langfuse import __version__ as langfuse_version
+                st.sidebar.success(f"✓ Langfuse observability enabled (v{langfuse_version})")
+            except:
+                st.sidebar.success("✓ Langfuse observability enabled")
+            
             st.sidebar.caption(f"Host: {os.getenv('LANGFUSE_HOST', 'https://cloud.langfuse.com')}")
+            st.sidebar.caption("API: Decorator-based (@observe)")
         except Exception as e:
             st.sidebar.warning(f"⚠️ Langfuse initialization failed: {str(e)}")
             langfuse = None
@@ -150,12 +159,12 @@ def format_score_color(score: int) -> str:
 
 def main():
     st.set_page_config(
-        page_title="Candidate Matching Score V2",
+        page_title="Candidate Matching Score V3",
         page_icon="⛳",
         layout="wide"
     )
     
-    st.title("⛳ Candidate Matching Score V2")
+    st.title("⛳ Candidate Matching Score V3")
     st.markdown("Evaluate candidate CVs against job postings using AI-powered criteria scoring")
     
     # Sidebar for API key and settings
@@ -194,17 +203,23 @@ def main():
         from test_matching_score import (
             CLAUDE_HAIKU_OPENROUTER,
             GEMINI_FLASH_OPENROUTER,
+            GEMINI_3_FLASH_OPENROUTER,
             GEMINI_FLASH_LITE_OPENROUTER,
             GPT_OSS_120B_OPENROUTER,
+            MISTRAL_14B_2512_OPENROUTER,
+            GROK_4_FAST_OPENROUTER,
             MODEL_NAMES
         )
         
         model_options = {
+            MODEL_NAMES[GEMINI_3_FLASH_OPENROUTER]: GEMINI_3_FLASH_OPENROUTER,
             MODEL_NAMES[GEMINI_FLASH_OPENROUTER]: GEMINI_FLASH_OPENROUTER,
             
             MODEL_NAMES[GEMINI_FLASH_LITE_OPENROUTER]: GEMINI_FLASH_LITE_OPENROUTER,
             MODEL_NAMES[CLAUDE_HAIKU_OPENROUTER]: CLAUDE_HAIKU_OPENROUTER,
-            MODEL_NAMES[GPT_OSS_120B_OPENROUTER]: GPT_OSS_120B_OPENROUTER
+            # MODEL_NAMES[MISTRAL_14B_2512_OPENROUTER]: MISTRAL_14B_2512_OPENROUTER,
+            # MODEL_NAMES[GROK_4_FAST_OPENROUTER]: GROK_4_FAST_OPENROUTER,
+            # MODEL_NAMES[GPT_OSS_120B_OPENROUTER]: GPT_OSS_120B_OPENROUTER
             
             
         }
@@ -356,16 +371,17 @@ def main():
         try:
             candidate_name = uploaded_file.name if uploaded_file else "unknown"
             
-            # LANGFUSE: Generate session ID for grouping all observations
-            # In Langfuse SDK v3.x, we pass session_id directly to each generation
-            # All generations with the same session_id will be grouped together
-            langfuse_trace = None  # Not used in v3.x, kept for compatibility
+            # LANGFUSE: Generate session ID
+            # Note: Traces are created automatically by @observe decorators in test_matching_score.py
+            # We'll retrieve the trace ID after the evaluation completes
+            langfuse_trace = None
+            trace_id_to_save = None
             session_id = None
             if LANGFUSE_ENABLED and langfuse is not None:
                 import hashlib
                 # Create unique session ID for this evaluation
                 session_id = f"streamlit-{hashlib.md5(f'{candidate_name}-{time.time()}'.encode()).hexdigest()[:12]}"
-                st.info(f"🔍 Langfuse tracking | Session: `{session_id}` | Version: {prompt_version or 'latest'}")
+                st.info(f"🔍 Langfuse tracking | Session: `{session_id}` | Trace will be created by @observe decorators")
             
             # Step 1: Extract Rubric
             step1_start = time.time()
@@ -414,8 +430,12 @@ def main():
             
             result = calculate_matching_score(rubric, criteria_scores)
             
+            # Get fit level from matching score for consistency
+            final_score = result["final_score"]
+            fit_level = get_fit_level(final_score)
+            
             step_times['score_calculation'] = time.time() - step3_start
-            timing_container.info(f"⏱️ Steps 1-3 completed in {sum(step_times.values()):.2f}s (Step 3: {step_times['score_calculation']:.2f}s)")
+            timing_container.info(f"⏱️ Steps 1-3 completed in {sum(step_times.values()):.2f}s (Step 3: {step_times['score_calculation']:.2f}s | Fit: {fit_level})")
             
             progress_bar.progress(75)
             
@@ -441,6 +461,7 @@ def main():
                     cv_text,
                     rubric_text=rubric_text,
                     criteria_scores_text=criteria_scores_text,
+                    fit_level=fit_level,
                     language=language,
                     langfuse_parent=langfuse_trace,  # Not used in v3.x, kept for compatibility
                     session_id=session_id,  # Pass session_id to group all operations
@@ -491,227 +512,29 @@ def main():
             progress_bar.progress(100)
             status_text.text("✅ Evaluation complete!")
             
-            # Display Results
-            st.divider()
-            st.header("📊 Results")
+            # Save results to session state
+            # Note: Trace ID cannot be retrieved here because @observe context has ended
+            # We'll use session_id to find the trace when submitting feedback
+            trace_id_to_save = None  # Will be looked up when needed
             
-            # Final Score - Large Display
-            final_score = result["final_score"]
-            score_color = format_score_color(final_score)
-            
-            col_score1, col_score2, col_score3 = st.columns([1, 2, 1])
-            with col_score2:
-                st.markdown(f"""
-                <div style="text-align: center; padding: 20px;">
-                    <h2 style="color: {score_color}; margin-bottom: 10px;">Final Matching Score</h2>
-                    <h1 style="font-size: 72px; color: {score_color}; margin: 0;">{final_score}%</h1>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            st.divider()
-            
-            # Rubric Criteria
-            st.subheader("📋 Evaluation Criteria")
-            st.markdown(f"**Total Criteria:** {len(rubric.criteria)} | **Total Weight:** {rubric.total_weight:.1f}%")
-            
-            criteria_df_data = []
-            for criterion in rubric.criteria:
-                criteria_df_data.append({
-                    "Criterion": criterion.name,
-                    "Weight": f"{criterion.weight:.1f}%",
-                    "Description": criterion.description,
-                    "Required": "✅ Yes" if criterion.is_required else "⚪ Preferred"
-                })
-            
-            st.dataframe(
-                criteria_df_data,
-                width="stretch",
-                hide_index=True
-            )
-            
-            st.divider()
-            
-            # Summary Table
-            st.subheader("📊 Score Summary")
-            summary_data = []
-            empty_evidence_count = 0
-            
-            for breakdown_item in result["breakdown"]:
-                # Get evidence and gap, ensuring they're strings
-                evidence = breakdown_item.get("evidence", "") or ""
-                gap = breakdown_item.get("gap", "") or ""
-                
-                # Track empty evidence
-                if not evidence:
-                    empty_evidence_count += 1
-                
-                # Use fallback text if empty
-                if not evidence:
-                    evidence = "No evidence provided by AI"
-                if not gap and breakdown_item["score"] < 80:
-                    gap = "Score below 80 - review recommended"
-                
-                summary_data.append({
-                    "Criterion": breakdown_item["criterion"],
-                    "Score": breakdown_item["score"],
-                    "Weight": f"{breakdown_item['weight']:.1f}%",
-                    "Contribution": f"{breakdown_item['contribution']:.2f}",
-                    "Evidence": evidence,
-                    "Gap": gap
-                })
-            
-            # Show warning if many empty evidence fields
-            if empty_evidence_count > 0:
-                st.warning(f"⚠️ {empty_evidence_count} out of {len(summary_data)} criteria have no evidence. The AI may not be returning evidence/gap fields correctly.")
-            
-            # Show debug info if needed
-            with st.expander("🔍 Debug Info (Click to see raw data)"):
-                st.json({
-                    "breakdown_sample": result["breakdown"][0] if result["breakdown"] else None,
-                    "criteria_scores_sample": {
-                        "criteria_name": criteria_scores[0].criteria_name if criteria_scores else None,
-                        "score": criteria_scores[0].score if criteria_scores else None,
-                        "evidence": criteria_scores[0].evidence if criteria_scores else None,
-                        "gap": criteria_scores[0].gap if criteria_scores else None,
-                    } if criteria_scores else None,
-                    "all_criteria_scores": [
-                        {
-                            "criteria_name": cs.criteria_name,
-                            "score": cs.score,
-                            "evidence": cs.evidence,
-                            "gap": cs.gap
-                        }
-                        for cs in criteria_scores
-                    ]
-                })
-            
-            st.dataframe(
-                summary_data,
-                width="stretch",
-                hide_index=True
-            )
-            
-            # Download results as JSON
-            st.divider()
-            
-            # Qualification Summary Display
-            st.header("📄 Qualification Summary")
-            st.markdown("""
-            A concise executive summary of the candidate's qualification assessment.
-            """)
-            st.info(qualification_summary)
-            
-            st.divider()
-            
-            # Qualification Note Display
-            st.header("📝 Candidate Qualification Note")
-            st.markdown("""
-            This comprehensive assessment provides a detailed analysis of the candidate's fit for the role,
-            based on recent experience, career trajectory, and requirements alignment.
-            """)
-            
-            # Clean and display the HTML-formatted qualification note
-            import re
-            
-            cleaned_note = qualification_note.strip()
-            
-            # Remove code block markers if present
-            if "```html" in cleaned_note:
-                cleaned_note = cleaned_note.split("```html")[1].split("```")[0].strip()
-            elif "```" in cleaned_note:
-                cleaned_note = cleaned_note.split("```")[1].split("```")[0].strip()
-            
-            # Remove any <div> wrappers from the LLM response (including the qual-note-container div)
-            cleaned_note = re.sub(r'<div[^>]*>', '', cleaned_note)
-            cleaned_note = cleaned_note.replace('</div>', '')
-            
-            # Remove any remaining HTML artifacts that might show as raw text
-            cleaned_note = re.sub(r'^\s*<[^>]+>\s*$', '', cleaned_note, flags=re.MULTILINE)
-            
-            print(f"✓ Cleaned note (first 300 chars): {cleaned_note[:300]}")
-            
-            # Add CSS styling for better presentation
-            qualification_html = f"""
-            <style>
-                .qual-note-container {{
-                    background-color: #f8f9fa;
-                    padding: 25px;
-                    border-radius: 10px;
-                    border-left: 5px solid #007bff;
-                    margin: 20px 0;
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                }}
-                .qual-note-container b {{
-                    color: #1e3a8a;
-                    font-size: 1.15em;
-                    display: block;
-                    margin: 20px 0 10px 0;
-                }}
-                .qual-note-container ul {{
-                    margin: 10px 0;
-                    padding-left: 25px;
-                    list-style-type: disc;
-                }}
-                .qual-note-container li {{
-                    margin: 10px 0;
-                    line-height: 1.7;
-                    color: #374151;
-                }}
-                .qual-note-container p {{
-                    margin: 12px 0;
-                    line-height: 1.8;
-                    color: #374151;
-                }}
-                .qual-note-container li b {{
-                    display: inline;
-                    font-size: 1em;
-                    margin: 0;
-                }}
-            </style>
-            
-                {cleaned_note}
-            
-            """
-            
-            # Display with proper HTML rendering
-            st.markdown(qualification_html, unsafe_allow_html=True)
-            
-            st.divider()
-            st.subheader("💾 Export Results")
-            
-            results_json = {
-                "final_score": final_score,
+            st.session_state['evaluation_results'] = {
+                "result": result,
+                "rubric": rubric,
+                "criteria_scores": criteria_scores,
                 "qualification_summary": qualification_summary,
                 "qualification_note": qualification_note,
-                "rubric": {
-                    "criteria": [
-                        {
-                            "name": c.name,
-                            "weight": c.weight,
-                            "description": c.description,
-                            "is_required": c.is_required
-                        }
-                        for c in rubric.criteria
-                    ]
-                },
-                "criteria_scores": [
-                    {
-                        "criteria_name": cs.criteria_name,
-                        "score": cs.score,
-                        "evidence": cs.evidence,
-                        "gap": cs.gap
-                    }
-                    for cs in criteria_scores
-                ],
-                "breakdown": result["breakdown"]
+                "job_posting": job_posting,
+                "cv_text": cv_text,
+                "final_score": result["final_score"],
+                "session_id": session_id,
+                "language": language,
+                "timing": {
+                    "total_time": total_time,
+                    "step_times": step_times
+                }
             }
             
-            st.download_button(
-                label="📥 Download Results as JSON",
-                data=json.dumps(results_json, indent=2),
-                file_name="matching_score_results.json",
-                mime="application/json"
-            )
+            st.rerun()
             
         except json.JSONDecodeError as e:
             st.error(f"❌ JSON Parsing Error: {str(e)}")
@@ -744,6 +567,378 @@ def main():
             progress_bar.empty()
             status_text.empty()
 
+
+
+    # --------------------------------------------------------------------------
+    # DISPLAY RESULTS (from Session State)
+    # --------------------------------------------------------------------------
+    if 'evaluation_results' in st.session_state:
+        results_data = st.session_state['evaluation_results']
+        
+        # Unpack data
+        result = results_data["result"]
+        rubric = results_data["rubric"]
+        criteria_scores = results_data["criteria_scores"]
+        qualification_summary = results_data["qualification_summary"]
+        qualification_note = results_data["qualification_note"]
+        job_posting = results_data["job_posting"]
+        cv_text = results_data["cv_text"]
+        final_score = results_data["final_score"]
+        session_id = results_data.get("session_id")
+        language = results_data.get("language", "English")
+        timing = results_data.get("timing", {})
+
+        # Display Timing Summary if available
+        if timing:
+            total_time = timing.get("total_time", 0)
+            step_times = timing.get("step_times", {})
+            st.success(f"""
+            ⏱️ **Total Time: {total_time:.2f}s**
+            - Step 1 (Rubric Extraction): {step_times.get('rubric_extraction', 0):.2f}s
+            - Step 2 (Criteria Scoring): {step_times.get('criteria_scoring', 0):.2f}s
+            - Step 3 (Score Calculation): {step_times.get('score_calculation', 0):.2f}s
+            - Step 4 (Qualification Note): {step_times.get('qualification_generation', 0):.2f}s
+            - Step 5 (Qualification Summary): {step_times.get('qualification_summary', 0):.2f}s
+            """)
+
+        # Display Results
+        st.divider()
+        st.header("📊 Results")
+        
+        # Final Score - Large Display
+        score_color = format_score_color(final_score)
+        
+        # Create columns for Score and Feedback
+        col_results_left, col_results_right = st.columns([1, 1])
+        
+        with col_results_left:
+            st.markdown(f"""
+            <div style="text-align: center; padding: 20px;">
+                <h2 style="color: {score_color}; margin-bottom: 10px;">Final Matching Score</h2>
+                <h1 style="font-size: 80px; color: {score_color}; margin: 0;">{final_score}%</h1>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with col_results_right:
+            st.markdown("### 👍 Feedback")
+            st.markdown("Help us improve the matching score algorithm.")
+            
+            # Debug information
+            if session_id:
+                st.caption(f"✅ Session ID: `{session_id}`")
+            else:
+                st.caption(f"⚠️ No Session ID (Langfuse enabled: {LANGFUSE_ENABLED})")
+            
+            with st.form("feedback_form_main"):
+                human_score = st.number_input(
+                    "Best Matching Score (Corrected):", 
+                    min_value=0, 
+                    max_value=100, 
+                    value=int(final_score),
+                    step=1,
+                    help="What score would you give this candidate?"
+                )
+            
+                feedback_notes = st.text_area(
+                    "Additional Notes / Feedback:",
+                    placeholder="Why did you change the score? What did the AI miss?",
+                    help="Provide context for your corrected score",
+                    height=100
+                )
+            
+                submitted = st.form_submit_button("Submit Feedback", type="secondary")
+                
+            if submitted:
+                # IMPORTANT: Re-initialize Langfuse if it's None (e.g., after rerun)
+                langfuse_client = langfuse  # Use global langfuse
+                if LANGFUSE_ENABLED and (langfuse_client is None):
+                    try:
+                        from langfuse import Langfuse
+                        public_key = os.getenv("LANGFUSE_PUBLIC_KEY")
+                        secret_key = os.getenv("LANGFUSE_SECRET_KEY")
+                        host = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
+                        if public_key and secret_key:
+                            langfuse_client = Langfuse(public_key=public_key, secret_key=secret_key, host=host)
+                            st.info("🔄 Re-initialized Langfuse client")
+                    except Exception as e:
+                        st.error(f"Failed to re-initialize Langfuse: {e}")
+
+
+                if LANGFUSE_ENABLED and langfuse_client and session_id:
+                    try:
+                        # Query Langfuse API to find traces with this session_id
+                        import requests
+                        import base64
+                        
+                        public_key = os.getenv("LANGFUSE_PUBLIC_KEY")
+                        secret_key = os.getenv("LANGFUSE_SECRET_KEY")
+                        host = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
+                        
+                        # Create basic auth header
+                        credentials = base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
+                        headers = {
+                            "Authorization": f"Basic {credentials}",
+                            "Content-Type": "application/json"
+                        }
+                        
+                        with st.spinner("🔍 Finding traces for this session..."):
+                            # Query traces by session_id
+                            response = requests.get(
+                                f"{host}/api/public/traces",
+                                headers=headers,
+                                params={"sessionId": session_id, "limit": 10}
+                            )
+                            
+                            if response.status_code == 200:
+                                traces_data = response.json()
+                                traces = traces_data.get("data", [])
+                                
+                                if traces:
+                                    st.info(f"✅ Found {len(traces)} trace(s) for session `{session_id}`")
+                                    
+                                    # Submit score to all traces in this session
+                                    scores_submitted = 0
+                                    for trace in traces:
+                                        trace_id_found = trace.get("id")
+                                        if trace_id_found:
+                                            try:
+                                                langfuse_client.create_score(
+                                                    trace_id=trace_id_found,
+                                                    name="human_correction",
+                                                    value=human_score,
+                                                    comment=feedback_notes if feedback_notes else None
+                                                )
+                                                scores_submitted += 1
+                                            except Exception as e:
+                                                st.warning(f"⚠️ Failed to score trace {trace_id_found[:16]}: {e}")
+                                    
+                                    if scores_submitted > 0:
+                                        langfuse_client.flush()
+                                        st.success(f"✅ Feedback submitted to {scores_submitted} trace(s) in Langfuse!")
+                                        st.info(f"📍 Session: `{session_id}`")
+                                    else:
+                                        st.error("❌ Failed to submit scores to any traces")
+                                else:
+                                    st.warning(f"⚠️ No traces found for session `{session_id}`. Wait a few seconds for Langfuse to index, then try again.")
+                            else:
+                                st.error(f"❌ Failed to query Langfuse API: {response.status_code}")
+                                st.code(response.text)
+                            
+                    except Exception as e:
+                        st.error(f"❌ Failed to submit feedback: {e}")
+                        import traceback
+                        st.code(traceback.format_exc())
+                elif not LANGFUSE_ENABLED:
+                    st.warning("⚠️ Langfuse is not enabled. Check your .env file for LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY.")
+                elif not langfuse_client:
+                    st.warning("⚠️ Langfuse client is not initialized. Check the sidebar for initialization status.")
+                elif not session_id:
+                    st.warning("⚠️ No session ID found. The evaluation may not have been tracked properly. Try running a new evaluation.")
+        
+        st.divider()
+        
+        # Rubric Criteria
+        st.subheader("📋 Evaluation Criteria")
+        st.markdown(f"**Total Criteria:** {len(rubric.criteria)} | **Total Weight:** {rubric.total_weight:.1f}%")
+        
+        criteria_df_data = []
+        for criterion in rubric.criteria:
+            criteria_df_data.append({
+                "Criterion": criterion.name,
+                "Weight": f"{criterion.weight:.1f}%",
+                "Description": criterion.description,
+                "Required": "✅ Yes" if criterion.is_required else "⚪ Preferred"
+            })
+        
+        st.dataframe(
+            criteria_df_data,
+            width="stretch",
+            hide_index=True
+        )
+        
+        st.divider()
+        
+        # Summary Table
+        st.subheader("📊 Score Summary")
+        summary_data = []
+        empty_evidence_count = 0
+        
+        for breakdown_item in result["breakdown"]:
+            # Get evidence and gap, ensuring they're strings
+            evidence = breakdown_item.get("evidence", "") or ""
+            gap = breakdown_item.get("gap", "") or ""
+            
+            # Track empty evidence
+            if not evidence:
+                empty_evidence_count += 1
+            
+            # Use fallback text if empty
+            if not evidence:
+                evidence = "No evidence provided by AI"
+            if not gap and breakdown_item["score"] < 80:
+                gap = "Score below 80 - review recommended"
+            
+            summary_data.append({
+                "Criterion": breakdown_item["criterion"],
+                "Score": breakdown_item["score"],
+                "Weight": f"{breakdown_item['weight']:.1f}%",
+                "Contribution": f"{breakdown_item['contribution']:.2f}",
+                "Evidence": evidence,
+                "Gap": gap
+            })
+        
+        # Show warning if many empty evidence fields
+        if empty_evidence_count > 0:
+            st.warning(f"⚠️ {empty_evidence_count} out of {len(summary_data)} criteria have no evidence. The AI may not be returning evidence/gap fields correctly.")
+        
+        # Show debug info if needed
+        with st.expander("🔍 Debug Info (Click to see raw data)"):
+            st.json({
+                "breakdown_sample": result["breakdown"][0] if result["breakdown"] else None,
+                "criteria_scores_sample": {
+                    "criteria_name": criteria_scores[0].criteria_name if criteria_scores else None,
+                    "score": criteria_scores[0].score if criteria_scores else None,
+                    "evidence": criteria_scores[0].evidence if criteria_scores else None,
+                    "gap": criteria_scores[0].gap if criteria_scores else None,
+                } if criteria_scores else None,
+                "all_criteria_scores": [
+                    {
+                        "criteria_name": cs.criteria_name,
+                        "score": cs.score,
+                        "evidence": cs.evidence,
+                        "gap": cs.gap
+                    }
+                    for cs in criteria_scores
+                ]
+            })
+        
+        st.dataframe(
+            summary_data,
+            width="stretch",
+            hide_index=True
+        )
+        
+        # Download results as JSON
+        st.divider()
+        
+        # Qualification Summary Display
+        st.header("📄 Qualification Summary")
+        st.markdown("""
+        A concise executive summary of the candidate's qualification assessment.
+        """)
+        st.info(qualification_summary)
+        
+        st.divider()
+        
+        # Qualification Note Display
+        st.header("📝 Candidate Qualification Note")
+        st.markdown("""
+        This comprehensive assessment provides a detailed analysis of the candidate's fit for the role,
+        based on recent experience, career trajectory, and requirements alignment.
+        """)
+        
+        # Clean and display the HTML-formatted qualification note
+        import re
+        
+        cleaned_note = qualification_note.strip()
+        
+        # Remove code block markers if present
+        if "```html" in cleaned_note:
+            cleaned_note = cleaned_note.split("```html")[1].split("```")[0].strip()
+        elif "```" in cleaned_note:
+            cleaned_note = cleaned_note.split("```")[1].split("```")[0].strip()
+        
+        # Remove any <div> wrappers from the LLM response (including the qual-note-container div)
+        cleaned_note = re.sub(r'<div[^>]*>', '', cleaned_note)
+        cleaned_note = cleaned_note.replace('</div>', '')
+        
+        # Remove any remaining HTML artifacts that might show as raw text
+        cleaned_note = re.sub(r'^\s*<[^>]+>\s*$', '', cleaned_note, flags=re.MULTILINE)
+        
+        # Add CSS styling for better presentation
+        qualification_html = f"""
+        <style>
+            .qual-note-container {{
+                background-color: #f8f9fa;
+                padding: 25px;
+                border-radius: 10px;
+                border-left: 5px solid #007bff;
+                margin: 20px 0;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }}
+            .qual-note-container b {{
+                color: #1e3a8a;
+                font-size: 1.15em;
+                display: block;
+                margin: 20px 0 10px 0;
+            }}
+            .qual-note-container ul {{
+                margin: 10px 0;
+                padding-left: 25px;
+                list-style-type: disc;
+            }}
+            .qual-note-container li {{
+                margin: 10px 0;
+                line-height: 1.7;
+                color: #374151;
+            }}
+            .qual-note-container p {{
+                margin: 12px 0;
+                line-height: 1.8;
+                color: #374151;
+            }}
+            .qual-note-container li b {{
+                display: inline;
+                font-size: 1em;
+                margin: 0;
+            }}
+        </style>
+        
+            {cleaned_note}
+        
+        """
+        
+        # Display with proper HTML rendering
+        st.markdown(qualification_html, unsafe_allow_html=True)
+        
+        st.divider()
+        st.subheader("💾 Export Results")
+        
+        results_json = {
+            "final_score": final_score,
+            "job_posting": job_posting,
+            "cv_profile": cv_text,
+            "qualification_summary": qualification_summary,
+            "qualification_note": qualification_note,
+            "rubric": {
+                "criteria": [
+                    {
+                        "name": c.name,
+                        "weight": c.weight,
+                        "description": c.description,
+                        "is_required": c.is_required
+                    }
+                    for c in rubric.criteria
+                ]
+            },
+            "criteria_scores": [
+                {
+                    "criteria_name": cs.criteria_name,
+                    "score": cs.score,
+                    "evidence": cs.evidence,
+                    "gap": cs.gap
+                }
+                for cs in criteria_scores
+            ],
+            "breakdown": result["breakdown"]
+        }
+        
+        st.download_button(
+            label="📥 Download Results as JSON",
+            data=json.dumps(results_json, indent=2),
+            file_name="matching_score_results.json",
+            mime="application/json"
+        )
 
 if __name__ == "__main__":
     main()

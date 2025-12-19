@@ -316,7 +316,7 @@ import requests
 import hashlib
 import pickle
 from pathlib import Path
-from prompts import CRITERIA_SCORING_PROMPT, QUALIFICATION_GENERATION_PROMPT
+from prompts import RUBRIC_EXTRACTION_PROMPT, CRITERIA_SCORING_PROMPT, QUALIFICATION_GENERATION_PROMPT
 
 # Load environment variables from .env file
 try:
@@ -363,6 +363,37 @@ except Exception as e:
     print(f"⚠ Langfuse initialization error: {e}")
     langfuse = None
     LANGFUSE_ENABLED = False
+
+
+# ============================================================================
+# FIT LEVEL SCALE (for consistent qualification assessment)
+# ============================================================================
+
+FIT_LEVEL_SCALE = [
+    (90, "Exceptional Fit"),
+    (80, "Strong Fit"),
+    (65, "Good Fit"),
+    (50, "Moderate Fit"),
+    (30, "Weak Fit"),
+    (0, "Poor Fit")
+]
+
+
+def get_fit_level(matching_score: int) -> str:
+    """
+    Determine fit level from matching score using the standard scale.
+    This ensures consistency across qualification note, summary, and matching score.
+    
+    Args:
+        matching_score: Integer score from 0-100
+        
+    Returns:
+        Fit level string (e.g., "Strong Fit", "Good Fit")
+    """
+    for min_score, fit_level in FIT_LEVEL_SCALE:
+        if matching_score >= min_score:
+            return fit_level
+    return "Poor Fit"
 
 
 # ============================================================================
@@ -416,6 +447,9 @@ CLAUDE_HAIKU_OPENROUTER = "anthropic/claude-haiku-4.5"
 GEMINI_FLASH_OPENROUTER = "google/gemini-2.5-flash-preview-09-2025"
 GEMINI_FLASH_LITE_OPENROUTER = "google/gemini-2.5-flash-lite"
 GPT_OSS_120B_OPENROUTER = "openai/gpt-oss-120b:exacto"
+MISTRAL_14B_2512_OPENROUTER = "mistralai/ministral-14b-2512"
+GROK_4_FAST_OPENROUTER = "x-ai/grok-4-fast"
+GEMINI_3_FLASH_OPENROUTER = "google/gemini-3-flash-preview"
 
 # Default model (can be overridden)
 OPENROUTER_MODEL = CLAUDE_HAIKU_OPENROUTER
@@ -425,7 +459,10 @@ MODEL_NAMES = {
     CLAUDE_HAIKU_OPENROUTER: "Claude Haiku 4.5",
     GEMINI_FLASH_OPENROUTER: "Gemini 2.5 Flash Preview",
     GEMINI_FLASH_LITE_OPENROUTER: "Gemini 2.5 Flash Lite",
-    GPT_OSS_120B_OPENROUTER: "GPT OSS 120B (Exacto)"
+    GEMINI_3_FLASH_OPENROUTER: "Gemini 3 Flash Preview",
+    MISTRAL_14B_2512_OPENROUTER: "Mistral 14B 2512",
+    GROK_4_FAST_OPENROUTER: "Grok 4.1 Fast",
+    GPT_OSS_120B_OPENROUTER: "GPT OSS 120B (Exacto)",
 }
 
 # Cache configuration
@@ -478,193 +515,8 @@ ENABLE_CACHE = True  # Set to False to disable caching
 # }}
 
 # Extract criteria now from the job posting below."""
-RUBRIC_EXTRACTION_PROMPT = """You are an expert recruiter tasked with extracting evaluation criteria from a job posting.
 
-## YOUR MISSION
-Analyze the job posting and create a weighted scoring rubric with specific criteria that will be used to evaluate candidates.
 
-## CRITERIA CATEGORIES
-
-Extract criteria from these categories (only if relevant to the job):
-
-1. **Job Title Match** (10-20 weight)
-   - How well candidate's job titles align with the target role
-   - More weight if specific title/role is critical
-
-2. **Experience Years** (15-25 weight)
-   - Years of relevant experience required
-   - More weight for senior roles or specialized experience
-
-3. **Seniority Level** (5-15 weight)
-   - Leadership level, team management, strategic responsibility
-   - More weight for leadership positions
-
-4. **Technical Skills** (20-35 weight)
-   - Specific technologies, tools, frameworks, methodologies
-   - More weight for technical roles
-   - Break down by: Required (must-have) vs Preferred (nice-to-have)
-   - ⚠️ **CRITICAL:** Include the REQUIRED LEVEL in the description (e.g., "Expert React (5+ years)", "Senior Python developer", "Medior/Senior level frontend")
-
-5. **Soft Skills** (5-15 weight)
-   - Communication, teamwork, problem-solving, etc.
-   - More weight if explicitly emphasized
-
-6. **Industry Experience** (5-15 weight)
-   - Specific industry background (Finance, Healthcare, etc.)
-   - More weight if domain knowledge is critical
-
-7. **Languages** (5-20 weight)
-   - Required language proficiencies with levels
-   - More weight if multilingual role or client-facing
-
-8. **Location** (0-10 weight)
-   - Geographic requirements, remote vs on-site
-   - More weight if relocation is difficult or on-site is mandatory
-
-9. **Education** (5-15 weight)
-   - Required degrees, certifications
-   - More weight for roles requiring specific qualifications
-
-10. **Domain Knowledge** (5-15 weight)
-    - Specific business domain expertise
-    - More weight if niche knowledge required
-
-## CRITICAL INSTRUCTION FOR DESCRIPTIONS
-
-⚠️ **Each criterion description MUST include the required level/experience:**
-
-**For Technical Skills:**
-- Extract the required proficiency level from the job posting
-- Include years if mentioned (e.g., "5+ years", "3+ years")
-- Include seniority indicators (e.g., "Expert", "Senior level", "Medior/Senior", "Strong expertise")
-- Examples:
-  - ✅ "Expert React (5+ years, complex applications)"
-  - ✅ "Senior Python developer (3+ years)"
-  - ✅ "Medior/Senior level frontend development"
-  - ❌ "React" (too vague, missing level)
-  - ❌ "Python experience" (missing required level)
-
-**For Experience Years:**
-- Be explicit: "5+ years", "3-5 years", "8+ years"
-
-**For Seniority Level:**
-- Specify: "Senior level", "Medior/Senior", "Lead level", "Junior level"
-
-## WEIGHTING GUIDELINES
-
-- Total weights MUST sum to 100
-- Assign higher weights to:
-  - Explicitly stated "must-haves" or "required"
-  - Skills/experience mentioned multiple times
-  - Critical responsibilities in the role
-  - Blocking requirements (without X, cannot do Y)
-  
-- Assign lower weights to:
-  - "Nice to have" or "preferred"
-  - Generic requirements
-  - Easily trainable skills
-
-## OUTPUT FORMAT
-
-Return ONLY a valid JSON object:
-
-```json
-{{
-  "criteria": [
-    {{
-      "name": "Experience Years",
-      "weight": 20,
-      "description": "5+ years in backend development",
-      "is_required": true
-    }},
-    {{
-      "name": "Technical Skills - Python",
-      "weight": 15,
-      "description": "Expert Python development",
-      "is_required": true
-    }},
-    {{
-      "name": "Technical Skills - AWS",
-      "weight": 10,
-      "description": "AWS cloud services experience",
-      "is_required": true
-    }},
-    {{
-      "name": "Languages - Dutch",
-      "weight": 15,
-      "description": "Professional Dutch (B2+ level)",
-      "is_required": true
-    }},
-    {{
-      "name": "Languages - English",
-      "weight": 10,
-      "description": "Fluent English",
-      "is_required": true
-    }},
-    {{
-      "name": "Industry - Financial Services",
-      "weight": 10,
-      "description": "Experience in banking/fintech",
-      "is_required": false
-    }},
-    {{
-      "name": "Soft Skills - Communication",
-      "weight": 10,
-      "description": "Strong stakeholder communication",
-      "is_required": false
-    }},
-    {{
-      "name": "Location",
-      "weight": 5,
-      "description": "Brussels-based or willing to relocate",
-      "is_required": false
-    }},
-    {{
-      "name": "Education",
-      "weight": 5,
-      "description": "Bachelor's degree in Computer Science or related",
-      "is_required": false
-    }}
-  ],
-  "total_weight": 100
-}}
-```
-
-## VALIDATION RULES
-
-1. Criteria names should be clear and specific
-2. Each criterion MUST have a weight > 0
-3. Sum of all weights MUST equal exactly 100
-4. is_required should be true for critical/blocking requirements
-5. **Description MUST include the required level/years** (e.g., "5+ years", "Expert level", "Senior", "Medior/Senior")
-6. Description should be specific to this job (not generic)
-
-## EXAMPLES
-
-**Job Posting:** "Senior Backend Developer, 5+ years Python, AWS required, Dutch B2+"
-
-**Good Rubric:**
-- Experience Years (20) - "5+ years backend development"
-- Technical Skills - Python (25) - "Expert Python (5+ years)"
-- Technical Skills - AWS (20) - "AWS services (production experience)"
-- Languages - Dutch (20) - "Dutch B2+ level"
-- Languages - English (10) - "Professional English"
-- Soft Skills (5) - "Communication skills"
-
-**Job Posting:** "Medior/Senior Frontend Developer, React expertise, Next.js"
-
-**Good Rubric:**
-- Seniority Level (15) - "Medior or Senior level (3+ years)"
-- Technical Skills - React (30) - "Strong React expertise (3+ years, complex applications)"
-- Technical Skills - Next.js (15) - "Next.js experience (production use)"
-- Technical Skills - JavaScript (20) - "Advanced JavaScript (ES6+, 3+ years)"
-
-**Bad Rubric:**
-- Technical Skills (50) - Too broad, should split by technology
-- Technical Skills - React (30) - "React" ❌ (missing required level)
-- Languages (10) - Not specific about which languages
-- Generic (20) - Vague criteria name
-"""
 
 # ============================================================================
 # CORE FUNCTIONS (mirroring actual project logic)
@@ -791,6 +643,9 @@ def call_openrouter(
     # Use the provided model or fall back to default
     selected_model = model if model else OPENROUTER_MODEL
     
+    print(f"\n[LLM CALL via OpenRouter] {generation_name}...")
+    print(f"Model: {selected_model}")
+    
     data = {
         "model": selected_model,
         "messages": messages,
@@ -877,7 +732,8 @@ def call_openrouter(
             pass
         # Update generation with error
         if generation:
-            generation.end(level="ERROR", status_message=error_detail)
+            generation.update(status_message=error_detail, level="ERROR")
+            generation.end()
         raise ValueError(f"OpenRouter API error (status {response.status_code}): {error_detail}")
     
     response.raise_for_status()
@@ -887,7 +743,8 @@ def call_openrouter(
         result = response.json()
     except json.JSONDecodeError as e:
         if generation:
-            generation.end(level="ERROR", status_message=str(e))
+            generation.update(status_message=str(e), level="ERROR")
+            generation.end()
         raise ValueError(f"Invalid JSON response from API: {response.text[:500]}") from e
     
     # Check for API-level errors in response
@@ -898,14 +755,16 @@ def call_openrouter(
         else:
             error_detail = str(error_msg)
         if generation:
-            generation.end(level="ERROR", status_message=error_detail)
+            generation.update(status_message=error_detail, level="ERROR")
+            generation.end()
         raise ValueError(f"OpenRouter API error: {error_detail}")
     
     # Extract content
     if "choices" not in result or len(result["choices"]) == 0:
         error_msg = f"Unexpected API response format: {json.dumps(result, indent=2)[:500]}"
         if generation:
-            generation.end(level="ERROR", status_message=error_msg)
+            generation.update(status_message=error_msg, level="ERROR")
+            generation.end()
         raise ValueError(error_msg)
     
     content = result["choices"][0]["message"]["content"]
@@ -914,7 +773,8 @@ def call_openrouter(
     if not content or not content.strip():
         error_msg = f"Empty response from API. Full response: {json.dumps(result, indent=2)[:500]}"
         if generation:
-            generation.end(level="ERROR", status_message=error_msg)
+            generation.update(status_message=error_msg, level="ERROR")
+            generation.end()
         raise ValueError(error_msg)
     
     # LANGFUSE: Update generation with output
@@ -1069,8 +929,6 @@ def extract_rubric_with_llm(
         if cached_rubric is not None:
             return cached_rubric
     
-    print("\n[LLM CALL via OpenRouter] Rubric Extraction from Job Posting...")
-    print(f"Model: {OPENROUTER_MODEL}")
     print(f"Job Posting: {job_posting[:200]}...")
     
     # LANGFUSE: Create span for this operation
@@ -1226,8 +1084,6 @@ def score_criteria_with_llm(
     Returns:
         List of criterion scores
     """
-    print("\n[LLM CALL via OpenRouter] Criteria Scoring...")
-    print(f"Model: {OPENROUTER_MODEL}")
     print(f"CV Profile: {cv_profile[:200]}...")
     print(f"Rubric: {len(rubric.criteria)} criteria")
     
@@ -1264,11 +1120,34 @@ def score_criteria_with_llm(
                 prompt_content = None
             else:
                 # Compile with variables
-                prompt_content = langfuse_prompt.compile(
-                    rubric_text=rubric_text,
-                    cv_profile=cv_profile
-                )
-                print("✓ Compiled Langfuse prompt with rubric_text and cv_profile")
+                try:
+                    prompt_content = langfuse_prompt.compile(
+                        rubric_text=rubric_text,
+                        cv_profile=cv_profile
+                    )
+                    print("✓ Compiled Langfuse prompt with rubric_text and cv_profile")
+                    # print(f"======= Prompt content: {prompt_content}")
+                    # Check if compilation actually worked (variables were substituted)
+                    if "{rubric_text}" in prompt_content or "{{rubric_text}}" in prompt_content:
+                        print("⚠⚠⚠ CRITICAL: Langfuse compile() did NOT substitute variables!")
+                        print("   Placeholders still present in compiled prompt.")
+                        print("   This might be a Langfuse SDK version issue or template format issue.")
+                        print("   Trying manual substitution...")
+                        
+                        # Manual substitution as fallback
+                        prompt_content = prompt_template.replace("{rubric_text}", rubric_text)
+                        prompt_content = prompt_content.replace("{{rubric_text}}", rubric_text)
+                        prompt_content = prompt_content.replace("{cv_profile}", cv_profile)
+                        prompt_content = prompt_content.replace("{{cv_profile}}", cv_profile)
+                        print("✓ Applied manual variable substitution")
+                except Exception as e:
+                    print(f"⚠ Langfuse compile() failed: {e}")
+                    print("   Trying manual substitution...")
+                    prompt_content = prompt_template.replace("{rubric_text}", rubric_text)
+                    prompt_content = prompt_content.replace("{{rubric_text}}", rubric_text)
+                    prompt_content = prompt_content.replace("{cv_profile}", cv_profile)
+                    prompt_content = prompt_content.replace("{{cv_profile}}", cv_profile)
+                    print("✓ Applied manual variable substitution")
                 
                 # Debug: Verify rubric is actually in compiled prompt
                 rubric_check_passed = False
@@ -1278,16 +1157,35 @@ def score_criteria_with_llm(
                 else:
                     # Check if criterion names are present
                     found_criteria = 0
+                    missing_criteria = []
                     for criterion in rubric.criteria:
                         if criterion.name in prompt_content:
                             found_criteria += 1
+                        else:
+                            missing_criteria.append(criterion.name)
                     
                     if found_criteria >= len(rubric.criteria) * 0.8:  # At least 80% of criteria found
                         rubric_check_passed = True
                         print(f"✓ Verified: {found_criteria}/{len(rubric.criteria)} criterion names found in compiled prompt")
                     else:
                         print(f"⚠⚠⚠ WARNING: Only {found_criteria}/{len(rubric.criteria)} criterion names found in compiled prompt!")
+                        print(f"   Missing criteria: {missing_criteria[:5]}")  # Show first 5 missing
                         print(f"   This suggests the rubric_text variable may not be properly included.")
+                        print(f"   DEBUG: Compiled prompt length: {len(prompt_content)} chars")
+                        print(f"   DEBUG: Rubric_text length: {len(rubric_text)} chars")
+                        # Show where rubric_text appears (or doesn't) in the compiled prompt
+                        if "Rubric:" in prompt_content or "RUBRIC:" in prompt_content or "**Rubric:**" in prompt_content:
+                            rubric_idx = max(
+                                prompt_content.find("Rubric:"),
+                                prompt_content.find("RUBRIC:"),
+                                prompt_content.find("**Rubric:**")
+                            )
+                            print(f"   DEBUG: Rubric section preview (500 chars after marker):")
+                            print(f"   {prompt_content[rubric_idx:rubric_idx+500]}")
+                        else:
+                            print(f"   DEBUG: No 'Rubric:' marker found in compiled prompt!")
+                            print(f"   DEBUG: Compiled prompt preview (first 1000 chars):")
+                            print(f"   {prompt_content[:1000]}")
                         print(f"   Falling back to hardcoded prompt to ensure rubric is included.")
                         langfuse_prompt = None
                         prompt_content = None
@@ -1569,6 +1467,7 @@ def generate_qualification_note(
     cv_profile: str,
     rubric_text: str = None,
     criteria_scores_text: str = None,
+    fit_level: str = None,
     language: str = "English",
     langfuse_parent=None,
     session_id: str = None,
@@ -1582,6 +1481,7 @@ def generate_qualification_note(
         cv_profile: The candidate's CV text
         rubric_text: Formatted text of the evaluation rubric criteria
         criteria_scores_text: Formatted text of the criteria scores
+        fit_level: The fit level assessment (e.g., "Strong Fit", "Good Fit")
         language: Language for the qualification note (default: "English")
         session_id: Optional session ID for Langfuse tracking
         model: Optional model name to use
@@ -1589,11 +1489,21 @@ def generate_qualification_note(
     Returns:
         HTML-formatted qualification note
     """
-    print("\n[LLM CALL via OpenRouter] Candidate Qualification Generation...")
     print(f"🌐 Language: {language}")
+    if fit_level:
+        print(f"🎯 Fit Level: {fit_level}")
+    print(f"Qualification Note Generation for {len(cv_profile)} chars...")
     
     # Build structured context like the actual implementation
     base_context = "### INPUTS\n\n"
+    
+    # Fit Level Context (if provided) - CRITICAL: LLM must use this exact value
+    if fit_level:
+        base_context += "**FIT LEVEL ASSESSMENT (MANDATORY - DO NOT MODIFY):**\n"
+        base_context += f"{fit_level}\n\n"
+        base_context += "⚠️ **CRITICAL INSTRUCTION:** You MUST use the exact fit level '{fit_level}' in your assessment. "
+        base_context += "Do NOT calculate or determine a different fit level. "
+        base_context += "Start your response with: <b>OVERALL ASSESSMENT: {fit_level}</b>\n\n".format(fit_level=fit_level)
     
     # Rubric Context (if provided)
     if rubric_text:
@@ -1651,9 +1561,11 @@ DO NOT ask for documents. DO NOT wait for input.
 
 **GENERATE THE COMPLETE QUALIFICATION NOTE NOW** following the exact HTML structure specified in your instructions, written entirely in **{language}**.
 
-Start your response directly with:
-<b>OVERALL ASSESSMENT: [Fit Level]</b>
-""".format(language=language)
+{fit_instruction}
+""".format(
+        language=language,
+        fit_instruction=f"Start your response directly with:\n<b>OVERALL ASSESSMENT: {fit_level}</b>" if fit_level else "Start your response directly with:\n<b>OVERALL ASSESSMENT: [Fit Level]</b>"
+    )
     
     # Prepare full prompt - System prompt first, then inputs
     prompt_content = f"""{QUALIFICATION_GENERATION_PROMPT}
@@ -1682,6 +1594,8 @@ Start your response directly with:
                 "job_posting": job_posting,
                 "cv_profile": cv_profile
             }
+            if fit_level:
+                compile_params["fit_level"] = fit_level
             if rubric_text:
                 compile_params["rubric_text"] = rubric_text
             if criteria_scores_text:
@@ -1744,6 +1658,7 @@ Start your response directly with:
 
 def generate_qualification_summary(
     qualification_note: str,
+    fit_level: str = None,
     language: str = "English",
     langfuse_parent=None,
     session_id: str = None,
@@ -1754,6 +1669,7 @@ def generate_qualification_summary(
     
     Args:
         qualification_note: The full qualification note HTML text
+        fit_level: The fit level assessment (e.g., "Strong Fit", "Good Fit")
         language: Language for the summary (default: "English")
         session_id: Optional session ID for Langfuse tracking
         model: Optional model name to use
@@ -1763,6 +1679,8 @@ def generate_qualification_summary(
     """
     print("\n[LLM CALL via OpenRouter] Qualification Summary Generation...")
     print(f"🌐 Language: {language}")
+    if fit_level:
+        print(f"🎯 Fit Level (enforced): {fit_level}")
     
     # Build prompt for summary generation
     summary_prompt = """You are a talent acquisition specialist. Your task is to create a concise, executive-level summary of a detailed qualification assessment.
