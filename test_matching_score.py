@@ -814,25 +814,30 @@ def call_openrouter(
     return content, llm_duration
 
 
-def get_job_posting_hash(job_posting: str) -> str:
+def get_job_posting_hash(job_posting: str, model: str = None) -> str:
     """
-    Generate a hash for the job posting to use as cache key.
+    Generate a hash for the job posting and model to use as cache key.
+    Different models may generate different rubrics, so cache separately.
     
     Args:
         job_posting: The job posting text
+        model: The model name (optional, uses default if not provided)
         
     Returns:
-        SHA256 hash of the job posting
+        SHA256 hash of the job posting + model
     """
-    return hashlib.sha256(job_posting.encode('utf-8')).hexdigest()[:16]
+    # Include model in the cache key to separate rubrics by model
+    cache_input = f"{job_posting}||MODEL:{model or OPENROUTER_MODEL}"
+    return hashlib.sha256(cache_input.encode('utf-8')).hexdigest()[:16]
 
 
-def load_rubric_from_cache(job_posting: str) -> Optional[EvaluationRubric]:
+def load_rubric_from_cache(job_posting: str, model: str = None) -> Optional[EvaluationRubric]:
     """
-    Load rubric from cache if it exists.
+    Load rubric from cache if it exists for this job posting and model.
     
     Args:
         job_posting: The job posting text
+        model: The model name (optional, uses default if not provided)
         
     Returns:
         EvaluationRubric if cached, None otherwise
@@ -840,14 +845,15 @@ def load_rubric_from_cache(job_posting: str) -> Optional[EvaluationRubric]:
     if not ENABLE_CACHE:
         return None
     
-    cache_key = get_job_posting_hash(job_posting)
+    cache_key = get_job_posting_hash(job_posting, model)
     cache_file = CACHE_DIR / f"rubric_{cache_key}.pkl"
     
     if cache_file.exists():
         try:
             with open(cache_file, 'rb') as f:
                 cached_data = pickle.load(f)
-                print(f"✓ Loaded rubric from cache (key: {cache_key})")
+                cached_model = cached_data.get('model', 'unknown')
+                print(f"✓ Loaded rubric from cache (key: {cache_key}, model: {cached_model})")
                 return cached_data['rubric']
         except Exception as e:
             print(f"⚠ Cache load failed: {e}")
@@ -856,18 +862,20 @@ def load_rubric_from_cache(job_posting: str) -> Optional[EvaluationRubric]:
     return None
 
 
-def save_rubric_to_cache(job_posting: str, rubric: EvaluationRubric):
+def save_rubric_to_cache(job_posting: str, rubric: EvaluationRubric, model: str = None):
     """
-    Save rubric to cache.
+    Save rubric to cache with model-specific key.
     
     Args:
         job_posting: The job posting text
         rubric: The rubric to cache
+        model: The model name (optional, uses default if not provided)
     """
     if not ENABLE_CACHE:
         return
     
-    cache_key = get_job_posting_hash(job_posting)
+    model_used = model or OPENROUTER_MODEL
+    cache_key = get_job_posting_hash(job_posting, model_used)
     cache_file = CACHE_DIR / f"rubric_{cache_key}.pkl"
     
     try:
@@ -875,9 +883,9 @@ def save_rubric_to_cache(job_posting: str, rubric: EvaluationRubric):
             pickle.dump({
                 'job_posting': job_posting,
                 'rubric': rubric,
-                'model': OPENROUTER_MODEL
+                'model': model_used
             }, f)
-        print(f"✓ Saved rubric to cache (key: {cache_key})")
+        print(f"✓ Saved rubric to cache (key: {cache_key}, model: {model_used})")
     except Exception as e:
         print(f"⚠ Cache save failed: {e}")
 
@@ -923,9 +931,9 @@ def extract_rubric_with_llm(
     Returns:
         EvaluationRubric with criteria and weights
     """
-    # Try to load from cache first
+    # Try to load from cache first (cache is model-specific)
     if use_cache:
-        cached_rubric = load_rubric_from_cache(job_posting)
+        cached_rubric = load_rubric_from_cache(job_posting, model)
         if cached_rubric is not None:
             return cached_rubric
     
@@ -1054,9 +1062,9 @@ def extract_rubric_with_llm(
         
         # LANGFUSE: Span updated/closed automatically
         
-        # Save to cache
+        # Save to cache (model-specific)
         if use_cache:
-            save_rubric_to_cache(job_posting, rubric)
+            save_rubric_to_cache(job_posting, rubric, model)
         
         return rubric
         
