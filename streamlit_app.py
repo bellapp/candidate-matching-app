@@ -261,7 +261,7 @@ def main():
         st.divider()
         
         # Cache option
-        use_cache = st.checkbox("Use Cache", value=True, help="Cache rubric extraction for faster repeated evaluations")
+        use_cache = st.checkbox("Use Cache", value=False, help="Cache rubric extraction for faster repeated evaluations")
         
         # Clear cache button
         if st.button("🗑️ Clear Cache", help="Delete all cached rubrics"):
