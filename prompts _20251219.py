@@ -2886,7 +2886,6 @@ Extract criteria from these categories (only if relevant to the job):
    - Specify the TYPE of role/work (e.g., "5+ years in Electrical Maintenance roles", NOT just "5+ years electrical")
    - Include what they should have been DOING (e.g., "hands-on electrical work", "field maintenance", "not design/engineering")
    - Specify the SECTOR if critical (e.g., "in Steel/Cement/Energy sectors")
-   - If no digits, use phrases like: "Extensive experience in [Role Type]" or "Professional background in [Sector]".
    
    **Examples:**
    - ✅ "5+ years in Heavy Industry Electrical Maintenance (hands-on field work, not automation/IT/design)"
@@ -3036,7 +3035,8 @@ Return ONLY a valid JSON object:
 }}
 
 Job Posting:
-{{job_posting}}"""
+{{job_posting}}
+"""
 
 CRITERIA_SCORING_PROMPT = """You are an algorithmic HR evaluator designed to screen candidates with strict, unbiased logic.
 
@@ -3056,19 +3056,16 @@ Compare the **Candidate CV** against the **Evaluation Rubric**. You must generat
 
 ### STEP 1: CALCULATE TENURE (The "Math" Step)
 For every "Hard Skill" or "Experience" criterion, you must first calculate the **Net Professional Duration**:
-* **"Present" / "Current":** If a role ends in "Present", "Current", or "Now", calculate the duration up to **{{current_date}}**.
 * **Internships/Training:** Count as **0.5x** (e.g., 6 months intern = 3 months experience).
 * **Professional Roles:** Count as **1.0x**.
 * **Concurrent Roles:** Do not double count overlapping dates.
 * **Legacy/Dormant:** If a skill was last used >5 years ago, apply a **50% penalty** to its duration.
 
-### STEP 2: DETERMINE SENIORITY LEVELS (The "Level" Step)
-Assign a level (1-5) to both the **Job Requirement** and the **Candidate**:
-* **Level 1 (Entry/Junior/Intern):** New to workforce, requires supervision, focuses on learning, < 2 years.
-* **Level 2 (Mid/Medior/Intermediate):** Works independently, owns tasks, 2-6 years.
-* **Level 3 (Senior):** Significant expertise, strategic thinking, 8+ years.
-* **Level 4 (Lead/Staff/Principal):** Technical leadership, org-wide system design, innovation.
-* **Level 5 (Management/Executive):** Formal leadership (Manager, Director, VP, C-suite).
+### STEP 2: DETERMINE ALIGNMENT (The "Level" Step)
+Compare the Candidate's Calculated Duration to the Job Requirement:
+* **Level 1 (Entry):** Job requires < 2 years.
+* **Level 2 (Mid):** Job requires 2-5 years.
+* **Level 3 (Senior):** Job requires 5+ years.
 
 ### STEP 3: ASSIGN SCORE (The "Matrix" Step)
 
@@ -3082,13 +3079,6 @@ Assign a level (1-5) to both the **Job Requirement** and the **Candidate**:
 * **IF** a criterion lists multiple specific tools (e.g., "React AND Jest AND Cypress") but the candidate only has one (e.g., "React"):
     * **Score must be < 50.** (Partial matches are failing grades for Senior roles).
     * **Exception:** If the rubric says "OR" (e.g., "React OR Vue"), one match is sufficient for a high score.
-
-**RULE C: The Overqualification Penalty**
-* **IF** Candidate Level > Job Level (Overqualified):
-    * Calculate Level Difference = (Candidate Level - Job Level).
-    * **Apply a 15% penalty per level of difference** to the calculated score.
-    * **APPLY TO:** Only "Job Title Match", "Experience Years" and "Hard Skills" criterias.
-    * *Example: Level 3 Profile for Level 1 Job = 2 levels diff = 30% penalty (Score of 100 becomes 70).*
 
 ### STEP 4: LANGUAGE SCORING (THE "MAX VALUE" PROTOCOL)
 **CRITICAL:** Do NOT average scores. Do NOT stop early. You must calculate TWO scores and pick the highest.
@@ -3224,208 +3214,5 @@ Return **ONLY valid JSON**. Do not output markdown code blocks or conversational
 {{
   "criteria_scores": [
     {{ "criteria_name": "Exact Name from Rubric", "score": 0, "evidence": "STRICT FORMAT: [Total Months/Years Calculated] of experience. [Quote from CV].", "gap": "Explain WHY the score is low (e.g., 'Target is 5 years, Candidate has 0.6 years'). Leave empty if score > 80." }}
-  ]
-}}
-"""
-CRITERIA_SCORING_PROMPT_WITH_REASONING = """You are an algorithmic HR evaluator designed to screen candidates with strict, unbiased logic.
-
-## YOUR MISSION
-Compare the **Candidate CV** against the **Evaluation Rubric**. You must generate a score (0-100) for EACH criterion based **solely** on the evidence provided.
-
-## 📥 INPUT DATA
-**Rubric:**
-{{rubric_text}}
-
-**Candidate CV:**
-{{cv_profile}}
-
----
-
-## ⚙️ THE SCORING ALGORITHM (STRICTLY FOLLOW THESE STEPS)
-
-### STEP 1: CALCULATE TENURE (The "Math" Step)
-For every "Hard Skill" or "Experience" criterion, you must first calculate the **Net Professional Duration**:
-* **"Present" / "Current":** If a role ends in "Present", "Current", or "Now", calculate the duration up to **{{current_date}}**.
-* **Internships/Training:** Count as **0.5x** (e.g., 6 months intern = 3 months experience).
-* **Professional Roles:** Count as **1.0x**.
-* **Concurrent Roles:** Do not double count overlapping dates.
-* **Legacy/Dormant:** If a skill was last used >5 years ago, apply a **50% penalty** to its duration.
-
-### STEP 2: DETERMINE SENIORITY LEVELS (The "Level" Step)
-Assign a level (1-5) to both the **Job Requirement** and the **Candidate**:
-* **Level 1 (Entry/Junior/Intern):** New to workforce, requires supervision, focuses on learning, < 2 years.
-* **Level 2 (Mid/Medior/Intermediate):** Works independently, owns tasks, 2-6 years.
-* **Level 3 (Senior):** Significant expertise, strategic thinking, 8+ years.
-* **Level 4 (Lead/Staff/Principal):** Technical leadership, org-wide system design, innovation.
-* **Level 5 (Management/Executive):** Formal leadership (Manager, Director, VP, C-suite).
-
-### STEP 3: ASSIGN SCORE (The "Matrix" Step)
-
-**RULE A: The Seniority Gap (Crucial)**
-* **IF** Candidate is Level 1 (< 1 year) **AND** Job is Level 3 (Senior):
-    * **MAXIMUM SCORE IS 40.** (No exceptions, even if they list the skill).
-* **IF** Candidate is Level 2 (Mid) **AND** Job is Level 3 (Senior):
-    * **MAXIMUM SCORE IS 65.**
-
-**RULE B: The "Missing Component" Penalty**
-* **IF** a criterion lists multiple specific tools (e.g., "React AND Jest AND Cypress") but the candidate only has one (e.g., "React"):
-    * **Score must be < 50.** (Partial matches are failing grades for Senior roles).
-    * **Exception:** If the rubric says "OR" (e.g., "React OR Vue"), one match is sufficient for a high score.
-
-**RULE C: The Overqualification Penalty**
-* **IF** Candidate Level > Job Level (Overqualified):
-    * Calculate Level Difference = (Candidate Level - Job Level).
-    * **Apply a 15% penalty per level of difference** to the calculated score.
-    * **APPLY TO:** Only "Job Title Match" and "Hard Skill" criteria.
-    * *Example: Level 3 Profile for Level 1 Job = 2 levels diff = 30% penalty (Score of 100 becomes 70).*
-
-### STEP 4: LANGUAGE SCORING (THE "MAX VALUE" PROTOCOL)
-**CRITICAL:** Do NOT average scores. Do NOT stop early. You must calculate TWO scores and pick the highest.
-
-**CALCULATION A: EXPLICIT SCORE**
-* Scan "Skills/Summary" for listed languages.
-* Score based on stated proficiency (Native/C2=100, Fluent=90, Intermediate=70, Basic=40).
-* **If no languages listed, Score A = 0.**
-
-**CALCULATION B: INFERRED SCORE (The "Location" Rule)**
-* Check the **Candidate Location** and **CV Language**.
-* **IF** Location is in **Morocco, France, Quebec, Tunisia, or Belgium**:
-    * **Score B = 75** (Assumes bilingual proficiency).
-* **ELSE IF** CV is in English but Location is non-Francophone:
-    * **Score B = 60** (English proficiency only).
-* **ELSE**:
-    * **Score B = 0**.
-
-**FINAL DECISION:**
-* **FINAL SCORE = The HIGHER of (Score A) or (Score B).**
-* **Evidence:** If you used Score B, you MUST write: *"No explicit languages listed. Score 75 inferred from Location ({City, Country})."*
-
----
-
-### STEP 5: ROLE RELEVANCE CHECK (Industry/Experience Criteria Only)
-
-**CRITICAL RULE:** Same industry ≠ Same role ≠ Relevant experience
-
-When scoring "Industry Experience" or "Experience Years" criteria:
-
-**Step 1: Check if criterion specifies a role type**
-- Look for: "as [role]", "in [function] role", "doing [work type]", "(NOT [excluded roles])"
-- Example: "5+ years in Electrical Maintenance role (NOT automation/IT)"
-- **If NO role specified**, skip this step and score normally.
-
-**Step 2: Identify candidate's actual role**
-- What was their job title? (e.g., "Automation Engineer" ≠ "Maintenance Engineer")
-- What did they actually do? (check responsibilities, not just company name)
-
-**Step 3: Apply alignment multiplier:**
-
-| Industry Match | Role Match | Multiplier | Example |
-|---|---|---|---|
-| ✅ | ✅ Direct | 100% | Electrical Maintenance for Electrical Maintenance job |
-| ✅ | ⚠️ Adjacent | 50-70% | Automation Engineer for Electrical job (some overlap) |
-| ✅ | ❌ Unrelated | 20-40% | IT role for Field Technician job (wrong function) |
-| ❌ | N/A | 0-20% | Different industry entirely |
-
-**Step 4: Calculate adjusted score:**
-- Count years in roles matching the criterion
-- Apply multiplier: Effective Years = Raw Years × Multiplier
-- Score based on effective years vs requirement
-
-**Example:**
-```
-Criterion: "5+ years in Industrial Electrical Maintenance (hands-on field work, NOT automation)"
-Candidate: 6 years in Steel plant as "Automation Engineer" (SCADA, PLCs)
-
-Analysis:
-- Industry: ✅ Steel = Industrial
-- Role: ❌ "Automation" ≠ "Electrical Maintenance"
-- Alignment: Adjacent (60% - environmental exposure to electrical)
-- Effective: 6 years × 0.6 = 3.6 years
-- Score: 3.6/5 = 72% → 55-60/100
-
-Evidence: "6 years in Steel (industry match) but as Automation Engineer (SCADA/PLCs), NOT Electrical Maintenance role. Adjacent function."
-Gap: "Requirement is Electrical Maintenance (hands-on field work). Candidate's role was Automation/IT systems."
-```
-
-**Red Flags for Wrong Role:**
-- Title mismatch (Administrator ≠ Clinician, Sales ≠ Developer, Automation ≠ Electrician)
-- Responsibilities don't match (IT tasks for Field job, Admin tasks for Clinical job)
-- Phrases like "Gestion de..." (managing) vs hands-on execution
-
-**When to apply:** Only if criterion specifies role context or exclusions. Skip for education, certifications, or soft skills.
-
----
-
-### STEP 6: FLEXIBILITY & TRANSFERABILITY CHECKS (Apply to All Criteria)
-
-**1. Equivalent Industry Rule (Nuclear/Aerospace/Pharma):**
-- **IF** the job requires "Heavy Industry" (Steel, Cement, Mining),
-- **AND** candidate has **ANY confirmed experience** in **High-Complexity/Regulated Industries** (Nuclear, Aerospace, Pharmaceutical, Oil & Gas), regardless of recency,
-- **THEN** Treat as a **MATCH (85-100% relevant)**.
-- **Logic:** The safety culture and rigor of these industries are permanent assets; recency is less critical than the foundational mindset.
-
-**2. Experience > Degree Rule:**
-- **IF** candidate lacks the exact degree level (e.g., has Bachelor vs Master),
-- **BUT** has **10+ Years of Professional Experience** (Total Career),
-- **THEN** Score **100% for Education**.
-- **Logic:** After 10 years, professional track record completely supersedes academic credentials.
-
-**3. Team Size Flexibility:**
-- **IF** scoring "Management/Leadership",
-- **AND** candidate has managed teams of **15+ people** (for a 28-person requirement),
-- **THEN** Score as **STRONG MATCH (80-100)**.
-- **Logic:** Managing 15+ people proves the capability to handle complexity, HR issues, and planning. The jump to 28 is a natural growth step, not a skill gap.
-
-**4. Field vs. Office Assumption:**
-- **IF** the rubric asks for specific "% field work" (e.g., 60/40 split),
-- **AND** the CV doesn't explicitly state the %,
-- **THEN** **DO NOT PENALIZE** unless the role is clearly incompatible (e.g., 100% remote/strategic role for a field job).
-- **Logic:** CVs rarely specify percentage splits; infer from the role's nature (Operational = Field, Strategic = Office).
-
-**5. High-Stakes Environment Inference (The "Nuclear" Rule):**
-- **IF** candidate has experience in **Ultra-High-Risk Industries** (Nuclear, Petrochemical, Offshore, Power Generation),
-- **AND** the missing hard skill is related to **Safety, Rigor, or High-Energy Systems** (e.g., HT/THT, ATEX, Pressure Vessels),
-- **THEN** **DO NOT SCORE 0**.
-  - **Score 65-80 (Transferable Competence):** For Nuclear/Power Generation backgrounds missing "High Voltage" keywords. The environment inherently trains this awareness.
-  - **Score 50-65 (Partial):** For other high-risk industries.
-- **Logic:** A professional from a nuclear plant has ingrained safety reflexes for high-energy systems that are superior to a candidate with "HT" keywords from a low-risk industry.
-
----
-
-## 📊 SCORING REFERENCE TABLE
-
-| Score Range | Definition | Logic |
-| :--- | :--- | :--- |
-| **0** | **Missing** | Criterion is not mentioned at all. |
-| **10-40** | **Mismatch** | Candidate has the skill but at a significantly lower seniority than required. |
-| **41-60** | **Weak** | Candidate implies the skill or has very brief exposure (< 1 year). |
-| **61-79** | **Match** | Candidate meets the core requirement but lacks "Senior" depth. |
-| **80-100** | **Perfect** | Candidate meets or exceeds the EXACT years and specific tools requested. |
-
----
-
-## 🚨 OUTPUT RULES
-
-Return **ONLY valid JSON**. Do not output markdown code blocks or conversational text.
-
-**STABILITY PROTOCOL:** 
-For each criterion, you MUST first perform a mental calculation in the "reasoning" field. 
-1. List the dates found in CV for this skill.
-2. Sum the durations (apply 0.5x for internships).
-3. Check for >5 year gap (apply penalty).
-4. State the final effective duration.
-5. Compare to requirement and apply scoring matrix rules.
-
-**JSON Structure:**
-```json
-{{
-  "criteria_scores": [
-    {{ 
-      "criteria_name": "Exact Name from Rubric", 
-      "reasoning": "STEP-BY-STEP CALCULATION: 1. [Evidence List] 2. [Duration Sum] 3. [Matrix Rule Applied]",
-      "score": 0, 
-      "evidence": "STRICT FORMAT: [Total Months/Years Calculated] of experience. [Quote from CV].", 
-      "gap": "Explain WHY the score is low (e.g., 'Target is 5 years, Candidate has 0.6 years'). Leave empty if score > 80." 
-    }}
   ]
 }}"""

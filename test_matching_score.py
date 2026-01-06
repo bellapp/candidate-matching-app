@@ -339,7 +339,7 @@ except ImportError:
 # 5. Prompt versions and A/B testing
 
 try:
-    from langfuse import Langfuse, propagate_attributes
+    from langfuse import Langfuse
     
     # Initialize Langfuse client
     langfuse = Langfuse(
@@ -421,6 +421,7 @@ class CriterionScore:
     """Score for a single criterion."""
     criteria_name: str
     score: float
+    reasoning: str # Added for stability (Chain of Thought)
     evidence: str
     gap: str
 
@@ -431,6 +432,10 @@ class CriterionScore:
 
 # Get API key from environment variable or .env file
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY") # Added for future direct Groq support
+TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")  # For Together AI models
+FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")  # For Fireworks AI models
+CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY")  # For Cerebras AI models
 if not OPENROUTER_API_KEY:
     print("ERROR: OPENROUTER_API_KEY not found!")
     print("Please set it in one of these ways:")
@@ -441,6 +446,10 @@ if not OPENROUTER_API_KEY:
 
 # OpenRouter configuration
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
+GROQ_BASE_URL = "https://api.groq.com/openai/v1/chat/completions"
+TOGETHER_BASE_URL = "https://api.together.xyz/v1/chat/completions"
+FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1/chat/completions"
+CEREBRAS_BASE_URL = "https://api.cerebras.ai/v1/chat/completions"
 
 # Available Models
 CLAUDE_HAIKU_OPENROUTER = "anthropic/claude-haiku-4.5"
@@ -450,7 +459,23 @@ GPT_OSS_120B_OPENROUTER = "openai/gpt-oss-120b:exacto"
 MISTRAL_14B_2512_OPENROUTER = "mistralai/ministral-14b-2512"
 GROK_4_FAST_OPENROUTER = "x-ai/grok-4-fast"
 GEMINI_3_FLASH_OPENROUTER = "google/gemini-3-flash-preview"
+GROQ_KIMI_K2="moonshotai/kimi-k2-instruct"
+GROQ_LLAMA_4_MAVERICK_INSTRUCT="meta-llama/llama-4-maverick-17b-128e-instruct"
+GROQ_LLAMA_4_SCOUT_INSTRUCT = "meta-llama/llama-4-scout-17b-16e-instruct"
+GROQ_QWEN_3_32B = "qwen/qwen3-32b"
+GROG_GPT_OSS_120=  "openai/gpt-oss-120b"  
 
+# Direct Groq Models
+GROQ_LLAMA_3_3_70B = "llama-3.3-70b-versatile"
+# GROQ_LLAMA_3_1_8B = "llama-3.1-8b-instant"
+# GROQ_MIXTRAL_8X7B = "mixtral-8x7b-32768"
+# GROQ_LLAMA_4 = "meta-llama/llama-4-405b" # Assuming this exists or is wanted
+TOGETHER_GLM_4_5_AIR_FP8 = "zai-org/GLM-4.5-Air-FP8"
+FIREWORKS_GLM_4_7 = "accounts/fireworks/models/glm-4p7"
+FIREWORKS_MINIMAX_M2P1 = "accounts/fireworks/models/minimax-m2p1"
+CEREBRAS_GLM_4_6 = "zai-glm-4.6"
+CEREBRAS_QWEN_3_235B = "qwen-3-235b-a22b-instruct-2507"
+CEREBRAS_LLAMA_3_3_70B = "llama-3.3-70b"
 # Default model (can be overridden)
 OPENROUTER_MODEL = CLAUDE_HAIKU_OPENROUTER
 
@@ -463,6 +488,21 @@ MODEL_NAMES = {
     MISTRAL_14B_2512_OPENROUTER: "Mistral 14B 2512",
     GROK_4_FAST_OPENROUTER: "Grok 4.1 Fast",
     GPT_OSS_120B_OPENROUTER: "GPT OSS 120B (Exacto)",
+    GROQ_KIMI_K2: "Kimi K2 Instruct (Direct Groq)",
+    GROQ_LLAMA_4_MAVERICK_INSTRUCT: "Llama 4 Maverick (Direct Groq)",
+    GROQ_LLAMA_4_SCOUT_INSTRUCT: "Llama 4 Scout (Direct Groq)",
+    # GROQ_LLAMA_4: "Llama 4 405B (Direct Groq)",
+    GROG_GPT_OSS_120: "GPT OSS 120B (Direct Groq)",
+    GROQ_QWEN_3_32B: "Qwen 3 32B (Direct Groq)",
+    GROQ_LLAMA_3_3_70B: "Llama 3.3 70B (Direct Groq - FAST)",
+    # GROQ_LLAMA_3_1_8B: "Llama 3.1 8B (Direct Groq - INSTANT)",
+    # GROQ_MIXTRAL_8X7B: "Mixtral 8x7b (Direct Groq)",
+    TOGETHER_GLM_4_5_AIR_FP8: "GLM-4.5 Air FP8 (Together AI)",
+    FIREWORKS_GLM_4_7: "GLM 4.7 (Fireworks AI)",
+    FIREWORKS_MINIMAX_M2P1: "Minimax M2P1 (Fireworks AI)",
+    CEREBRAS_GLM_4_6: "GLM 4.6 (Cerebras AI)",
+    CEREBRAS_QWEN_3_235B: "Qwen 3 235B (Cerebras AI)",
+    CEREBRAS_LLAMA_3_3_70B: "Llama 3.3 70B (Cerebras AI)",
 }
 
 # Cache configuration
@@ -477,44 +517,50 @@ ENABLE_CACHE = True  # Set to False to disable caching
 # CRITERIA_SCORING_PROMPT is imported from prompts.py at the top of the file
 
 # Rubric extraction prompt (actual prompt used in project)
-# RUBRIC_EXTRACTION_PROMPT = """You are an AI that extracts evaluation criteria from job postings.
+RUBRIC_EXTRACTION_PROMPT = """You are an AI that extracts evaluation criteria from job postings.
 
-# Given a job posting, extract 6-10 weighted criteria that should be used to evaluate candidates.
+Given a job posting, extract 6-10 weighted criteria that should be used to evaluate candidates.
 
-# **CRITICAL INSTRUCTIONS FOR TECHNICAL SKILLS:**
-# 1. **Always include required level/seniority in the description**
-#    - Example: "Strong React.js expertise (Senior level, 5+ years)"
-#    - Example: "Python proficiency (Medior level, 3+ years)"
-#    - Example: "Basic SQL knowledge (Junior level, 1+ years)"
+**CRITICAL INSTRUCTIONS FOR TECHNICAL SKILLS:**
+1. **Always include required level/seniority in the description**
+   - Example: "Strong React.js expertise (Senior level, 5+ years)"
+   - Example: "Python proficiency (Medior level, 3+ years)"
+   - Example: "Basic SQL knowledge (Junior level, 1+ years)"
 
-# 2. **Weight criteria based on importance:**
-#    - Critical must-haves: 15-25%
-#    - Important requirements: 10-15%
-#    - Nice-to-haves: 5-10%
-#    - Total must equal 100%
+2. **Weight criteria based on importance:**
+   - Critical must-haves: 15-25%
+   - Important requirements: 10-15%
+   - Nice-to-haves: 5-10%
+   - Total must equal 100%
 
-# 3. **Categories to consider:**
-#    - Job Title Match
-#    - Experience Years
-#    - Technical Skills (break down by technology, always include required level)
-#    - Soft Skills
-#    - Languages
-#    - Industry Experience
-#    - Education
+3. **Categories to consider:**
+   - Job Title Match
+   - Experience Years
+   - Technical Skills (break down by technology, always include required level)
+   - Soft Skills
+   - Languages
+   - Industry Experience
+   - Education
 
-# Return ONLY a valid JSON object with this structure (no markdown, no explanations):
-# {{
-#   "criteria": [
-#     {{
-#       "name": "Criterion Name",
-#       "weight": 15.0,
-#       "description": "Detailed description including required level (e.g., 'Senior level', '5+ years')",
-#       "is_required": true
-#     }}
-#   ]
-# }}
+**CRITICAL OUTPUT INSTRUCTIONS:**
+1. Return ONLY a valid JSON object.
+2. DO NOT include introductory or concluding text.
+3. DO NOT include markdown formatting outside the JSON block.
+4. The response must be directly parseable by `json.loads()`.
 
-# Extract criteria now from the job posting below."""
+Return ONLY a valid JSON object with this structure:
+{
+  "criteria": [
+    {
+      "name": "Criterion Name",
+      "weight": 15.0,
+      "description": "Detailed description including required level",
+      "is_required": true
+    }
+  ],
+  "total_weight": 100.0
+}
+"""
 
 
 
@@ -565,15 +611,17 @@ def calculate_matching_score(rubric: EvaluationRubric, criteria_scores: List[Cri
             weighted_sum += contribution
             total_weight += weight
             
-            # Ensure evidence and gap are strings (not None)
+            # Ensure evidence, gap, and reasoning are strings (not None)
             evidence = criterion_score.evidence if criterion_score.evidence else ""
             gap = criterion_score.gap if criterion_score.gap else ""
+            reasoning = getattr(criterion_score, 'reasoning', "") or ""
             
             breakdown.append({
                 "criterion": criterion_score.criteria_name,
                 "score": criterion_score.score,
                 "weight": weight,
                 "contribution": round(contribution, 2),
+                "reasoning": reasoning,
                 "evidence": evidence,
                 "gap": gap
             })
@@ -598,6 +646,134 @@ def calculate_matching_score(rubric: EvaluationRubric, criteria_scores: List[Cri
     }
 
 
+def clean_llm_json_response(response_text: str) -> str:
+    """
+    Clean LLM response by removing reasoning blocks (<think>...</think>),
+    removing pagination artifacts (e.g., "Page 1 of 2"),
+    and extracting content within JSON markdown blocks if present.
+    Also attempts to repair truncated JSON if possible.
+    Includes heuristics to quote unquoted description fields and insert missing
+    commas before following keys (common LLM formatting slips).
+    """
+    import re
+    
+    # 1. Remove <think> blocks (used by reasoning models like Qwen 3 or DeepSeek R1)
+    response_text = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL)
+    
+    # If <think> still exists (e.g. unclosed tag), remove everything until the first '{'
+    if '<think>' in response_text:
+        think_idx = response_text.find('<think>')
+        json_start = response_text.find('{', think_idx)
+        if json_start != -1:
+            response_text = response_text[json_start:]
+        else:
+            response_text = response_text[think_idx + 7:]
+
+    # 2. Remove pagination artifacts like "Page 1 of 2" or "Page 1 / 2" or standalone "Page 10"
+    # These often appear in the middle of JSON from certain providers/models
+    response_text = re.sub(r'Page \d+ (?:of|/) \d+', '', response_text, flags=re.IGNORECASE)
+    response_text = re.sub(r'Page\s+\d+\s*', '', response_text, flags=re.IGNORECASE)
+    # Remove stray "Page {" or ", Page {" tokens that break JSON objects
+    response_text = re.sub(r',?\s*Page\s*\{', '{', response_text, flags=re.IGNORECASE)
+    # Remove/normalize "PageRoute" artifacts that appear before weight values
+    response_text = re.sub(r'"weight\s+PageRoute:\s*",? ?', '"weight": ', response_text, flags=re.IGNORECASE)
+    response_text = re.sub(r'PageRoute\s*:\s*', '', response_text, flags=re.IGNORECASE)
+    
+    response_text = response_text.strip()
+    
+    # 3. Extract content from markdown JSON blocks
+    json_blocks = re.findall(r'```json\s*(.*?)\s*(?:```|$)', response_text, flags=re.DOTALL)
+    if json_blocks:
+        response_text = json_blocks[-1].strip()
+    else:
+        code_blocks = re.findall(r'```\s*(.*?)\s*(?:```|$)', response_text, flags=re.DOTALL)
+        if code_blocks:
+            response_text = code_blocks[-1].strip()
+            
+    # 4. If no markdown blocks, try to find the first '{' and last '}'
+    if not (response_text.startswith('{') and response_text.endswith('}')):
+        start_idx = response_text.find("{")
+        end_idx = response_text.rfind("}") + 1
+        if start_idx != -1:
+            if end_idx > start_idx:
+                response_text = response_text[start_idx:end_idx]
+            else:
+                # If no closing brace found, take everything from start brace
+                # and let the repair logic (Step 5) handle it
+                response_text = response_text[start_idx:]
+        else:
+            # No JSON object found; return empty JSON to avoid crashes
+            return "{}"
+            
+    response_text = response_text.strip()
+    
+    # 5. Attempt to repair truncated JSON
+    if response_text.startswith('{') and not response_text.endswith('}'):
+        print("⚠ Detected truncated JSON, attempting repair...")
+        
+        # Remove partial keys/values at the very end (e.g., , "descrip )
+        # Find the last occurrence of either a complete object } or a complete value
+        last_comma = response_text.rfind(',')
+        last_brace = response_text.rfind('}')
+        last_bracket = response_text.rfind(']')
+        
+        # Cut back to the last structural comma or brace
+        cut_point = max(last_brace, last_bracket)
+        
+        if cut_point != -1:
+            response_text = response_text[:cut_point + 1]
+            
+            # Close opened structures
+            open_braces = response_text.count('{') - response_text.count('}')
+            open_brackets = response_text.count('[') - response_text.count(']')
+            
+            response_text += ']' * open_brackets
+            response_text += '}' * open_braces
+        else:
+            # Last resort: just try to close the main object
+            if not response_text.endswith('}'):
+                response_text += '"}' if response_text.count('"') % 2 != 0 else '}'
+
+    # 6b. Balance any remaining unmatched brackets/braces (helps when array/object not closed)
+    open_brackets = response_text.count('[') - response_text.count(']')
+    open_braces = response_text.count('{') - response_text.count('}')
+    if open_brackets > 0:
+        response_text += ']' * open_brackets
+    if open_braces > 0:
+        response_text += '}' * open_braces
+
+    # 6. Quote unquoted description values and add missing comma before next key
+    # Pattern: "description": Some text "is_required": true  --> quote text + add comma
+    def _quote_desc(match):
+        prefix = match.group(1)
+        val = match.group(2).strip()
+        return f'{prefix}"{val}"'
+
+    # Quote when description value is unquoted and immediately followed by "is_required"
+    response_text = re.sub(
+        r'("description"\s*:\s*)(?!")([^\n\r\{\}\[\],]*?)(?="\s*is_required")',
+        _quote_desc,
+        response_text,
+        flags=re.IGNORECASE
+    )
+    # Ensure comma exists between description and next "is_required"
+    response_text = re.sub(
+        r'("description"\s*:\s*"[^"]*")\s*("is_required")',
+        r'\1, \2',
+        response_text,
+        flags=re.IGNORECASE
+    )
+
+    # 7. Fix missing "name" keys formatted as { "Some Name", "weight": ... }
+    response_text = re.sub(
+        r'\{\s*"([^"]+)"\s*(?!:)\s*,\s*"weight"',
+        lambda m: f'{{ "name": "{m.group(1).strip()}", "weight"',
+        response_text
+    )
+
+    return response_text.strip()
+
+
 def call_openrouter(
     messages: List[Dict[str, str]], 
     max_tokens: int = 2000,
@@ -608,60 +784,104 @@ def call_openrouter(
     model: str = None
 ) -> tuple[str, float]:
     """
-    Make an API call to OpenRouter with Langfuse observability.
-    
-    LANGFUSE TRACING EXPLANATION:
-    ------------------------------
-    When LANGFUSE_ENABLED=True, this function:
-    1. Creates a "generation" (LLM call) in Langfuse
-    2. Logs: input (prompt), output (response), model, tokens, latency
-    3. Links to parent trace/span (if provided)
-    4. Calculates cost based on token usage
-    
-    This allows you to:
-    - See all LLM calls in Langfuse dashboard
-    - Compare different prompts/models
-    - Track costs and performance
-    - Debug issues by viewing exact inputs/outputs
-    
-    Args:
-        messages: List of message dicts with 'role' and 'content'
-        max_tokens: Maximum tokens to generate
-        langfuse_parent: Parent trace/span for hierarchical tracking
-        generation_name: Name for this LLM call (e.g., "rubric_extraction", "criteria_scoring")
-        
-    Returns:
-        Response text from the model
+    Make an API call to OpenRouter or Groq with Langfuse observability.
+    Includes retry logic for rate limits (429).
     """
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/wiggli-parser",  # Optional
-        "X-Title": "Wiggli Parser Test"  # Optional
-    }
+    import time
+    import random
     
     # Use the provided model or fall back to default
     selected_model = model if model else OPENROUTER_MODEL
     
-    print(f"\n[LLM CALL via OpenRouter] {generation_name}...")
+    # Determine if this is a direct Groq or Together call
+    is_direct_groq = selected_model in [
+        GROQ_KIMI_K2, 
+        GROQ_LLAMA_4_MAVERICK_INSTRUCT, 
+        GROQ_LLAMA_4_SCOUT_INSTRUCT,
+        # GROQ_LLAMA_4,
+        GROG_GPT_OSS_120,
+        GROQ_QWEN_3_32B,
+        GROQ_LLAMA_3_3_70B, 
+        # GROQ_LLAMA_3_1_8B, 
+        # GROQ_MIXTRAL_8X7B
+    ]
+    is_together = selected_model in [TOGETHER_GLM_4_5_AIR_FP8]
+    is_fireworks = selected_model in [FIREWORKS_GLM_4_7, FIREWORKS_MINIMAX_M2P1]
+    is_cerebras = selected_model in [CEREBRAS_GLM_4_6, CEREBRAS_QWEN_3_235B, CEREBRAS_LLAMA_3_3_70B]
+    
+    api_url = OPENROUTER_BASE_URL
+    api_key = OPENROUTER_API_KEY
+    
+    if is_direct_groq:
+        api_url = GROQ_BASE_URL
+        api_key = GROQ_API_KEY
+        if not api_key:
+            raise ValueError("GROQ_API_KEY not found in environment variables!")
+        print(f"\n[LLM CALL via Direct Groq] {generation_name}...")
+    elif is_together:
+        api_url = TOGETHER_BASE_URL
+        api_key = TOGETHER_API_KEY
+        if not api_key:
+            raise ValueError("TOGETHER_API_KEY not found in environment variables!")
+        print(f"\n[LLM CALL via Together] {generation_name}...")
+    elif is_fireworks:
+        api_url = FIREWORKS_BASE_URL
+        api_key = FIREWORKS_API_KEY
+        if not api_key:
+            raise ValueError("FIREWORKS_API_KEY not found in environment variables!")
+        print(f"\n[LLM CALL via Fireworks] {generation_name}...")
+    elif is_cerebras:
+        api_url = CEREBRAS_BASE_URL
+        api_key = CEREBRAS_API_KEY
+        if not api_key:
+            raise ValueError("CEREBRAS_API_KEY not found in environment variables!")
+        print(f"\n[LLM CALL via Cerebras] {generation_name}...")
+    else:
+        api_url = OPENROUTER_BASE_URL
+        api_key = OPENROUTER_API_KEY
+        print(f"\n[LLM CALL via OpenRouter] {generation_name}...")
+        
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    if not is_direct_groq and not is_together and not is_fireworks and not is_cerebras:
+        headers["HTTP-Referer"] = "https://github.com/wiggli-parser"
+        headers["X-Title"] = "Wiggli Parser Test"
+    
     print(f"Model: {selected_model}")
     
+    # If Together, Fireworks or Cerebras, bump max_tokens to reduce truncation risk
+    # Note: Fireworks has a 4096 limit for non-streaming, so we cap it there
+    if is_together and max_tokens < 6000:
+        max_tokens = 6000
+    elif is_fireworks and max_tokens > 4096:
+        max_tokens = 4096
+    elif is_cerebras and max_tokens < 6000:
+        max_tokens = 6000
+
     data = {
         "model": selected_model,
         "messages": messages,
-        "max_tokens": max_tokens,
         # --- CONSISTENCY PARAMETERS ---
         "temperature": 0,      # Removes randomness
         "top_p": 1,           # Restricts sampling to top probability
         "seed": 42            # Forces deterministic output (if supported by model)
     }
     
-    # LANGFUSE: Create generation manually (v3.x API with session grouping)
-    # Use propagate_attributes to set session_id so it propagates to all child observations
-    # IMPORTANT: Keep propagate_attributes context open until generation is complete
-    generation = None
-    propagate_context = None
+    if is_cerebras:
+        data["max_completion_tokens"] = max_tokens
+    else:
+        data["max_tokens"] = max_tokens
     
+    # Enable JSON mode ONLY for rubric extraction and criteria scoring
+    if is_fireworks or is_together or is_direct_groq or is_cerebras:
+        if generation_name in ["rubric_extraction_llm", "criteria_scoring_llm"]:
+            data["response_format"] = {"type": "json_object"}
+    
+    # LANGFUSE: Create generation manually (v3.x API with session grouping)
+    generation = None
     if LANGFUSE_ENABLED and langfuse:
         try:
             # Build generation parameters
@@ -678,140 +898,159 @@ def call_openrouter(
                 "prompt": langfuse_prompt
             }
             
-            # Start propagate_attributes context if session_id is provided
-            # Keep it open until generation is complete
-            if session_id:
-                propagate_context = propagate_attributes(session_id=session_id)
-                propagate_context.__enter__()
-                print(f"🔍 Started propagate_attributes context with session_id: {session_id}")
-            
-            # Create generation (session_id will be automatically propagated if context is active)
+            # Create generation using the client directly
+            # Note: We bypass propagate_attributes here because it is not thread-safe
+            # when used with ThreadPoolExecutor in the compare_all_models script.
             if langfuse_parent:
-                # Create generation as child of parent trace/span
                 if hasattr(langfuse_parent, 'generation'):
                     generation = langfuse_parent.generation(**gen_params)
                 elif hasattr(langfuse_parent, 'start_generation'):
                     generation = langfuse_parent.start_generation(**gen_params)
-                else:
-                    # Fallback: create standalone
-                    if hasattr(langfuse, 'generation'):
-                        generation = langfuse.generation(**gen_params)
-                    elif hasattr(langfuse, 'start_generation'):
-                        generation = langfuse.start_generation(**gen_params)
             else:
-                # Create standalone generation
                 if hasattr(langfuse, 'generation'):
                     generation = langfuse.generation(**gen_params)
                 elif hasattr(langfuse, 'start_generation'):
                     generation = langfuse.start_generation(**gen_params)
+            
+            # Add session_id after creation if provided
+            if generation and session_id:
+                try:
+                    generation.update(session_id=session_id)
+                except Exception as e:
+                    print(f"⚠ Could not set session_id on generation: {e}")
                     
         except Exception as e:
             print(f"⚠ Langfuse generation creation failed: {e}")
             generation = None
-            # Exit context if creation failed
-            if propagate_context:
+
+    # Implement retry logic for 429
+    max_retries = 10
+    base_delay = 5 # seconds
+    provider_name = "Fireworks" if is_fireworks else "Together" if is_together else "Groq" if is_direct_groq else "Cerebras" if is_cerebras else "OpenRouter"
+
+    for attempt in range(max_retries):
+        # Track actual LLM API call time (excluding Langfuse overhead)
+        llm_start_time = time.time()
+        try:
+            response = requests.post(api_url, headers=headers, json=data, timeout=60)
+            llm_duration = time.time() - llm_start_time
+            
+            # Handle rate limiting (429)
+            if response.status_code == 429:
+                if attempt < max_retries - 1:
+                    # Exponential backoff with jitter
+                    delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                    print(f"⚠️ {provider_name} Rate limited (429). Retrying in {delay:.2f}s... (Attempt {attempt + 1}/{max_retries})")
+                    time.sleep(delay)
+                    continue
+                else:
+                    print(f"❌ Max retries reached for 429 error.")
+            
+            # Check for other HTTP errors
+            if response.status_code != 200:
+                error_detail = response.text
                 try:
-                    propagate_context.__exit__(None, None, None)
+                    error_json = response.json()
+                    error_detail = json.dumps(error_json, indent=2)
                 except:
                     pass
-                propagate_context = None
-
-    # Track actual LLM API call time (excluding Langfuse overhead)
-    import time
-    llm_start_time = time.time()
-    response = requests.post(OPENROUTER_BASE_URL, headers=headers, json=data)
-    llm_duration = time.time() - llm_start_time
-    
-    # Check for HTTP errors
-    if response.status_code != 200:
-        error_detail = response.text
-        try:
-            error_json = response.json()
-            error_detail = json.dumps(error_json, indent=2)
-        except:
-            pass
-        # Update generation with error
-        if generation:
-            generation.update(status_message=error_detail, level="ERROR")
-            generation.end()
-        raise ValueError(f"OpenRouter API error (status {response.status_code}): {error_detail}")
-    
-    response.raise_for_status()
-    
-    # Parse response
-    try:
-        result = response.json()
-    except json.JSONDecodeError as e:
-        if generation:
-            generation.update(status_message=str(e), level="ERROR")
-            generation.end()
-        raise ValueError(f"Invalid JSON response from API: {response.text[:500]}") from e
-    
-    # Check for API-level errors in response
-    if "error" in result:
-        error_msg = result.get("error", {})
-        if isinstance(error_msg, dict):
-            error_detail = error_msg.get("message", str(error_msg))
-        else:
-            error_detail = str(error_msg)
-        if generation:
-            generation.update(status_message=error_detail, level="ERROR")
-            generation.end()
-        raise ValueError(f"OpenRouter API error: {error_detail}")
-    
-    # Extract content
-    if "choices" not in result or len(result["choices"]) == 0:
-        error_msg = f"Unexpected API response format: {json.dumps(result, indent=2)[:500]}"
-        if generation:
-            generation.update(status_message=error_msg, level="ERROR")
-            generation.end()
-        raise ValueError(error_msg)
-    
-    content = result["choices"][0]["message"]["content"]
-    
-    # Check if content is empty
-    if not content or not content.strip():
-        error_msg = f"Empty response from API. Full response: {json.dumps(result, indent=2)[:500]}"
-        if generation:
-            generation.update(status_message=error_msg, level="ERROR")
-            generation.end()
-        raise ValueError(error_msg)
-    
-    # LANGFUSE: Update generation with output
-    if generation:
-        try:
-            # Extract token usage
-            usage = result.get("usage", {})
-            # Update output and usage
-            # Note: session_id is already set via propagate_attributes, no need to set it here
-            generation.update(
-                output=content,
-                usage={
-                    "prompt_tokens": usage.get("prompt_tokens", 0),
-                    "completion_tokens": usage.get("completion_tokens", 0),
-                    "total_tokens": usage.get("total_tokens", 0)
-                }
-            )
-            # Then end the generation
-            generation.end()
+                # Update generation with error
+                if generation:
+                    generation.update(status_message=error_detail, level="ERROR")
+                    generation.end()
+                raise ValueError(f"{provider_name} API error (status {response.status_code}): {error_detail}")
             
-            if session_id:
-                print(f"✓ Generation completed with session_id: {session_id}")
-        except Exception as e:
-            print(f"⚠ Langfuse generation update failed: {e}")
-        finally:
-            # Close propagate_attributes context after generation is complete
-            if propagate_context:
+            response.raise_for_status()
+            
+            # Parse response
+            try:
+                result = response.json()
+            except json.JSONDecodeError as e:
+                if generation:
+                    generation.update(status_message=str(e), level="ERROR")
+                    generation.end()
+                raise ValueError(f"Invalid JSON response from API: {response.text[:500]}") from e
+            
+            # Check for API-level errors in response
+            if "error" in result:
+                error_msg = result.get("error", {})
+                if isinstance(error_msg, dict):
+                    error_detail = error_msg.get("message", str(error_msg))
+                else:
+                    error_detail = str(error_msg)
+                
+                # Check for 429 within the JSON response (some providers do this)
+                if "429" in error_detail or "rate limit" in error_detail.lower() or "quota" in error_detail.lower():
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                        print(f"⚠️ {provider_name} Rate limited (API Error). Retrying in {delay:.2f}s... (Attempt {attempt + 1}/{max_retries})")
+                        time.sleep(delay)
+                        continue
+
+                if generation:
+                    generation.update(status_message=error_detail, level="ERROR")
+                    generation.end()
+                raise ValueError(f"{provider_name} API error: {error_detail}")
+            
+            # Extract content
+            choice = result["choices"][0]
+            content = choice["message"]["content"]
+            finish_reason = choice.get("finish_reason")
+            
+            if finish_reason == "length":
+                print(f"⚠ WARNING: LLM response was TRUNCATED (finish_reason: length). Increase max_tokens!")
+            
+            # Check if content is empty
+            if not content or not content.strip():
+                error_msg = f"Empty response from API. Full response: {json.dumps(result, indent=2)[:500]}"
+                if generation:
+                    generation.update(status_message=error_msg, level="ERROR")
+                    generation.end()
+                raise ValueError(error_msg)
+            
+            # LANGFUSE: Update generation with output
+            if generation:
                 try:
-                    propagate_context.__exit__(None, None, None)
+                    # Extract token usage
+                    usage = result.get("usage", {})
+                    # Update output and usage first
+                    generation.update(
+                        output=content,
+                        usage={
+                            "prompt_tokens": usage.get("prompt_tokens", 0),
+                            "completion_tokens": usage.get("completion_tokens", 0),
+                            "total_tokens": usage.get("total_tokens", 0)
+                        }
+                    )
+                    # Add session_id if provided (manual tracing is thread-safe)
                     if session_id:
-                        print(f"✓ Closed propagate_attributes context for session_id: {session_id}")
+                        try:
+                            generation.update(session_id=session_id)
+                        except:
+                            pass
+                    # Then end the generation
+                    generation.end()
+                    
+                    if session_id:
+                        print(f"✓ Generation completed with session_id: {session_id}")
                 except Exception as e:
-                    print(f"⚠ Error closing propagate_attributes context: {e}")
-    
-    # Return content and actual LLM call duration (excluding Langfuse overhead)
-    print(f"⏱️  LLM API call took: {llm_duration:.2f}s")
-    return content, llm_duration
+                    print(f"⚠ Langfuse generation update failed: {e}")
+            
+            # Return content and actual LLM call duration (excluding Langfuse overhead)
+            print(f"⏱️  LLM API call took: {llm_duration:.2f}s")
+            return content, llm_duration
+
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                print(f"⚠️ Network error: {e}. Retrying in {delay:.2f}s... (Attempt {attempt + 1}/{max_retries})")
+                time.sleep(delay)
+                continue
+            else:
+                if generation:
+                    generation.update(status_message=str(e), level="ERROR")
+                    generation.end()
+                raise
 
 
 def get_job_posting_hash(job_posting: str, model: str = None) -> str:
@@ -989,7 +1228,7 @@ def extract_rubric_with_llm(
                     "content": prompt_content
                 }
             ],
-            max_tokens=2000,
+            max_tokens=4000,
             generation_name="rubric_extraction_llm",
             langfuse_prompt=langfuse_prompt,
             session_id=session_id,
@@ -1001,55 +1240,49 @@ def extract_rubric_with_llm(
         print(f"LLM Response (first 500 chars): {response_text[:500]}...")
         print(f"LLM Response length: {len(response_text)} chars")
         
-        # Try to parse JSON (handle potential markdown wrapping and extra text)
+        # Clean and extract JSON from response (handles <think> blocks and markdown)
         response_text_original = response_text
-        response_text = response_text.strip()
-        
-        # Remove markdown code blocks
-        if "```json" in response_text:
-            start_idx = response_text.find("```json") + 7
-            end_idx = response_text.find("```", start_idx)
-            if end_idx != -1:
-                response_text = response_text[start_idx:end_idx].strip()
-        elif "```" in response_text:
-            start_idx = response_text.find("```") + 3
-            end_idx = response_text.find("```", start_idx)
-            if end_idx != -1:
-                response_text = response_text[start_idx:end_idx].strip()
-        
-        # Try to find JSON object boundaries
-        if "{" in response_text and "}" in response_text:
-            start_idx = response_text.find("{")
-            end_idx = response_text.rfind("}") + 1
-            if start_idx != -1 and end_idx > start_idx:
-                response_text = response_text[start_idx:end_idx]
-        
-        response_text = response_text.strip()
+        response_text = clean_llm_json_response(response_text)
         
         # Validate we have something to parse
-        if not response_text:
-            raise ValueError(f"Empty response after parsing. Original response: {response_text_original[:500]}")
+        if not response_text or response_text == "{}":
+            return EvaluationRubric(criteria=[], total_weight=0)
         
         # Parse JSON with better error message
         try:
             rubric_data = json.loads(response_text)
+            if not isinstance(rubric_data, dict):
+                raise ValueError(f"Expected dict from JSON, got {type(rubric_data)}")
+            if "criteria" not in rubric_data:
+                # Try fallback key
+                if "criteria_scores" in rubric_data:
+                    rubric_data["criteria"] = rubric_data["criteria_scores"]
+                else:
+                    return EvaluationRubric(criteria=[], total_weight=0)
         except json.JSONDecodeError as e:
             error_msg = f"JSON parsing failed at position {e.pos}: {e.msg}\n"
-            error_msg += f"Response text (first 1000 chars):\n{response_text[:1000]}\n"
+            error_msg += f"Cleaned response text (first 1000 chars):\n{response_text[:1000]}\n"
             error_msg += f"Original response (first 500 chars):\n{response_text_original[:500]}"
             print(f"ERROR: {error_msg}")
             raise ValueError(error_msg) from e
         
         # Convert to EvaluationRubric
-        criteria = [
-            RubricCriterion(
-                name=c["name"],
-                weight=float(c["weight"]),
-                description=c["description"],
-                is_required=c.get("is_required", True)
-            )
-            for c in rubric_data["criteria"]
-        ]
+        criteria = []
+        raw_criteria = rubric_data.get("criteria", [])
+        if not isinstance(raw_criteria, list):
+            raw_criteria = []
+            
+        for c in raw_criteria:
+            if not isinstance(c, dict): continue
+            try:
+                criteria.append(RubricCriterion(
+                    name=str(c.get("name", "Unnamed")),
+                    weight=float(c.get("weight", 0)),
+                    description=str(c.get("description", "")),
+                    is_required=bool(c.get("is_required", True))
+                ))
+            except:
+                continue
         
         # Normalize weights to 100%
         total_weight = sum(c.weight for c in criteria)
@@ -1224,16 +1457,15 @@ def score_criteria_with_llm(
 3. **DO NOT create new criteria** - only score the ones provided
 4. **DO NOT combine or split criteria** - each criterion must be scored separately
 
-**For EACH criterion, you MUST provide:**
-1. "criteria_name" - Use the EXACT criterion name from the list above (e.g., "{rubric.criteria[0].name if rubric.criteria else 'Criterion Name'}"). DO NOT modify or create new names.
-2. "score" - number between 0-100
-3. "evidence" - REQUIRED: specific evidence from the CV (quote or paraphrase). DO NOT leave empty!
-4. "gap" - REQUIRED if score < 80: what's missing or below requirement. Leave empty string "" if score >= 80.
+**CRITICAL: You MUST return ONLY a valid JSON object.**
+1. Use EXACT criterion name for "criteria_name" (e.g., "{rubric.criteria[0].name if rubric.criteria else 'Criterion Name'}"), NOT the weight.
+2. "score" - number between 0-100.
+3. "reasoning" - Step-by-step logic for the score calculation.
+4. "evidence" - REQUIRED: specific evidence from the CV.
+5. "gap" - REQUIRED if score < 80. Leave "" if score >= 80.
 
-**Expected Output:**
-You must return a JSON object with exactly {len(rubric.criteria)} items in the "criteria_scores" array, one for each criterion listed above.
-
-Return ONLY valid JSON with ALL fields populated. Evidence and gap fields are MANDATORY."""
+DO NOT include introductory text, concluding text, or markdown formatting outside the JSON block.
+Return ONLY valid JSON with exactly the key "criteria_scores" containing the array of {len(rubric.criteria)} results."""
         print("✓ Used fallback hardcoded prompt")
     
     try:
@@ -1245,7 +1477,7 @@ Return ONLY valid JSON with ALL fields populated. Evidence and gap fields are MA
                     "content": prompt_content
                 }
             ],
-            max_tokens=4000,  # Increased to allow for evidence/gap text
+            max_tokens=6000,  # Increased to avoid truncation with reasoning
             generation_name="criteria_scoring_llm",
             langfuse_parent=langfuse_parent,
             langfuse_prompt=langfuse_prompt,
@@ -1257,41 +1489,33 @@ Return ONLY valid JSON with ALL fields populated. Evidence and gap fields are MA
         print(f"LLM Response (first 500 chars): {response_text}...")
         print(f"LLM Response length: {len(response_text)} chars")
         
-        # Try to parse JSON (handle potential markdown wrapping and extra text)
+        # Clean and extract JSON from response (handles <think> blocks and markdown)
         response_text_original = response_text
-        response_text = response_text.strip()
-        
-        # Remove markdown code blocks
-        if "```json" in response_text:
-            start_idx = response_text.find("```json") + 7
-            end_idx = response_text.find("```", start_idx)
-            if end_idx != -1:
-                response_text = response_text[start_idx:end_idx].strip()
-        elif "```" in response_text:
-            start_idx = response_text.find("```") + 3
-            end_idx = response_text.find("```", start_idx)
-            if end_idx != -1:
-                response_text = response_text[start_idx:end_idx].strip()
-        
-        # Try to find JSON object boundaries
-        if "{" in response_text and "}" in response_text:
-            start_idx = response_text.find("{")
-            end_idx = response_text.rfind("}") + 1
-            if start_idx != -1 and end_idx > start_idx:
-                response_text = response_text[start_idx:end_idx]
-        
-        response_text = response_text.strip()
+        response_text = clean_llm_json_response(response_text)
         
         # Validate we have something to parse
-        if not response_text:
-            raise ValueError(f"Empty response after parsing. Original response: {response_text_original[:500]}")
+        if not response_text or response_text == "{}":
+            print(f"⚠ Warning: LLM returned empty JSON for criteria scoring. Original response: {response_text_original[:500]}")
+            return []
         
         # Parse JSON with better error message
         try:
             scores_data = json.loads(response_text)
+            if not isinstance(scores_data, dict):
+                raise ValueError(f"Expected dict from JSON, got {type(scores_data)}")
+            
+            # If criteria_scores is missing, check for fallbacks
+            if "criteria_scores" not in scores_data:
+                if "criteria" in scores_data:
+                    scores_data["criteria_scores"] = scores_data["criteria"]
+                elif "scores" in scores_data:
+                    scores_data["criteria_scores"] = scores_data["scores"]
+                else:
+                    print(f"⚠ Warning: Missing 'criteria_scores' in response keys {list(scores_data.keys())}. Returning empty scores.")
+                    return []
         except json.JSONDecodeError as e:
             error_msg = f"JSON parsing failed at position {e.pos}: {e.msg}\n"
-            error_msg += f"Response text (first 1000 chars):\n{response_text[:1000]}\n"
+            error_msg += f"Cleaned response text (first 1000 chars):\n{response_text[:1000]}\n"
             error_msg += f"Original response (first 500 chars):\n{response_text_original[:500]}"
             print(f"ERROR: {error_msg}")
             raise ValueError(error_msg) from e
@@ -1423,6 +1647,7 @@ Return ONLY valid JSON with ALL fields populated. Evidence and gap fields are MA
             score_obj = CriterionScore(
                 criteria_name=normalized_name,  # Use normalized name
                 score=float(s["score"]),
+                reasoning=s.get("reasoning", "") or "", # Added for stability
                 evidence=s.get("evidence", "") or "",  # Ensure it's a string, not None
                 gap=s.get("gap", "") or ""  # Ensure it's a string, not None
             )
@@ -1446,6 +1671,7 @@ Return ONLY valid JSON with ALL fields populated. Evidence and gap fields are MA
                     placeholder_score = CriterionScore(
                         criteria_name=missing_name,
                         score=0.0,
+                        reasoning="Not scored by LLM",
                         evidence="Criterion not scored by LLM - may indicate prompt issue",
                         gap=f"Missing score for '{missing_name}' - LLM did not return this criterion"
                     )

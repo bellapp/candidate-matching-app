@@ -29,7 +29,6 @@ from test_matching_score import (
     calculate_matching_score,
     generate_qualification_note,
     generate_qualification_summary,
-    get_fit_level,
     EvaluationRubric,
     CriterionScore
 )
@@ -91,7 +90,12 @@ try:
                 st.sidebar.success("✓ Langfuse observability enabled")
             
             st.sidebar.caption(f"Host: {os.getenv('LANGFUSE_HOST', 'https://cloud.langfuse.com')}")
-            st.sidebar.caption("API: Decorator-based (@observe)")
+            
+            # Show available methods for debugging
+            trace_methods = [m for m in dir(langfuse) if 'trace' in m.lower() and not m.startswith('_')]
+            score_methods = [m for m in dir(langfuse) if 'score' in m.lower() and not m.startswith('_')]
+            if trace_methods or score_methods:
+                st.sidebar.caption(f"API: trace={trace_methods[0] if trace_methods else 'N/A'}, score={score_methods[0] if score_methods else 'N/A'}")
         except Exception as e:
             st.sidebar.warning(f"⚠️ Langfuse initialization failed: {str(e)}")
             langfuse = None
@@ -164,7 +168,7 @@ def main():
         layout="wide"
     )
     
-    st.title("⛳ Candidate Matching Score V3")
+    st.title("⛳ Candidate Matching Score V3R")
     st.markdown("Evaluate candidate CVs against job postings using AI-powered criteria scoring")
     
     # Sidebar for API key and settings
@@ -208,40 +212,15 @@ def main():
             GPT_OSS_120B_OPENROUTER,
             MISTRAL_14B_2512_OPENROUTER,
             GROK_4_FAST_OPENROUTER,
-            GROQ_KIMI_K2,
-            GROQ_LLAMA_4_MAVERICK_INSTRUCT,
-            GROQ_LLAMA_4_SCOUT_INSTRUCT,
-            
-            GROQ_LLAMA_3_3_70B,
-            
-            GROQ_QWEN_3_32B,
-            GROG_GPT_OSS_120,
-            CEREBRAS_LLAMA_3_3_70B,
-            CEREBRAS_GLM_4_6,
-            CEREBRAS_QWEN_3_235B,
             MODEL_NAMES
         )
         
         model_options = {
             MODEL_NAMES[GEMINI_3_FLASH_OPENROUTER]: GEMINI_3_FLASH_OPENROUTER,
-            
-            MODEL_NAMES[CEREBRAS_LLAMA_3_3_70B]: CEREBRAS_LLAMA_3_3_70B,
-            MODEL_NAMES[CEREBRAS_GLM_4_6]: CEREBRAS_GLM_4_6,
-            
-            MODEL_NAMES[GROQ_LLAMA_3_3_70B]: GROQ_LLAMA_3_3_70B,
-            
             MODEL_NAMES[GEMINI_FLASH_OPENROUTER]: GEMINI_FLASH_OPENROUTER,
-            MODEL_NAMES[GROQ_KIMI_K2]: GROQ_KIMI_K2,
-            MODEL_NAMES[GROQ_LLAMA_4_MAVERICK_INSTRUCT]: GROQ_LLAMA_4_MAVERICK_INSTRUCT,
-            MODEL_NAMES[GROQ_LLAMA_4_SCOUT_INSTRUCT]: GROQ_LLAMA_4_SCOUT_INSTRUCT,
-            
-            MODEL_NAMES[GROG_GPT_OSS_120]: GROG_GPT_OSS_120,
-            MODEL_NAMES[GROQ_QWEN_3_32B]: GROQ_QWEN_3_32B,
             
             MODEL_NAMES[GEMINI_FLASH_LITE_OPENROUTER]: GEMINI_FLASH_LITE_OPENROUTER,
             MODEL_NAMES[CLAUDE_HAIKU_OPENROUTER]: CLAUDE_HAIKU_OPENROUTER,
-            
-            MODEL_NAMES[CEREBRAS_QWEN_3_235B]: CEREBRAS_QWEN_3_235B,
             # MODEL_NAMES[MISTRAL_14B_2512_OPENROUTER]: MISTRAL_14B_2512_OPENROUTER,
             # MODEL_NAMES[GROK_4_FAST_OPENROUTER]: GROK_4_FAST_OPENROUTER,
             # MODEL_NAMES[GPT_OSS_120B_OPENROUTER]: GPT_OSS_120B_OPENROUTER
@@ -455,12 +434,8 @@ def main():
             
             result = calculate_matching_score(rubric, criteria_scores)
             
-            # Get fit level from matching score for consistency
-            final_score = result["final_score"]
-            fit_level = get_fit_level(final_score)
-            
             step_times['score_calculation'] = time.time() - step3_start
-            timing_container.info(f"⏱️ Steps 1-3 completed in {sum(step_times.values()):.2f}s (Step 3: {step_times['score_calculation']:.2f}s | Fit: {fit_level})")
+            timing_container.info(f"⏱️ Steps 1-3 completed in {sum(step_times.values()):.2f}s (Step 3: {step_times['score_calculation']:.2f}s)")
             
             progress_bar.progress(75)
             
@@ -486,7 +461,6 @@ def main():
                     cv_text,
                     rubric_text=rubric_text,
                     criteria_scores_text=criteria_scores_text,
-                    fit_level=fit_level,
                     language=language,
                     langfuse_parent=langfuse_trace,  # Not used in v3.x, kept for compatibility
                     session_id=session_id,  # Pass session_id to group all operations
@@ -538,9 +512,19 @@ def main():
             status_text.text("✅ Evaluation complete!")
             
             # Save results to session state
-            # Note: Trace ID cannot be retrieved here because @observe context has ended
-            # We'll use session_id to find the trace when submitting feedback
-            trace_id_to_save = None  # Will be looked up when needed
+            # Try to get trace ID from Langfuse context (if using @observe decorators)
+            if LANGFUSE_ENABLED and langfuse and hasattr(langfuse, 'get_current_trace_id'):
+                try:
+                    trace_id_to_save = langfuse.get_current_trace_id()
+                    if trace_id_to_save:
+                        st.info(f"✅ Captured trace ID: `{trace_id_to_save[:16]}...`")
+                except Exception as e:
+                    print(f"Could not get current trace ID: {e}")
+                    # Fall back to using session_id for scoring
+                    trace_id_to_save = session_id
+            elif session_id:
+                # Use session_id as identifier for scoring
+                trace_id_to_save = session_id
             
             st.session_state['evaluation_results'] = {
                 "result": result,
@@ -552,6 +536,7 @@ def main():
                 "cv_text": cv_text,
                 "final_score": result["final_score"],
                 "session_id": session_id,
+                "trace_id": trace_id_to_save,
                 "language": language,
                 "timing": {
                     "total_time": total_time,
@@ -609,10 +594,28 @@ def main():
         job_posting = results_data["job_posting"]
         cv_text = results_data["cv_text"]
         final_score = results_data["final_score"]
-        session_id = results_data.get("session_id")
+        session_id = results_data["session_id"]
+        trace_id = results_data.get("trace_id")
         language = results_data.get("language", "English")
         timing = results_data.get("timing", {})
 
+        # Display Timing Summary if available
+        if timing:
+            total_time = timing.get("total_time", 0)
+            step_times = timing.get("step_times", {})
+            st.success(f"""
+            ⏱️ **Total Time: {total_time:.2f}s**
+            - Step 1 (Rubric Extraction): {step_times.get('rubric_extraction', 0):.2f}s
+            - Step 2 (Criteria Scoring): {step_times.get('criteria_scoring', 0):.2f}s
+            - Step 3 (Score Calculation): {step_times.get('score_calculation', 0):.2f}s
+            - Step 4 (Qualification Note): {step_times.get('qualification_generation', 0):.2f}s
+            - Step 5 (Qualification Summary): {step_times.get('qualification_summary', 0):.2f}s
+            """)
+
+        # Display Results
+        st.divider()
+        st.header("📊 Results")
+        
         # Final Score - Large Display
         score_color = format_score_color(final_score)
         
@@ -628,26 +631,14 @@ def main():
             """, unsafe_allow_html=True)
 
         with col_results_right:
-            # Display Results Header and Timing Summary in the right column
-            st.header("📊 Results")
-            
-            if timing:
-                total_time = timing.get("total_time", 0)
-                step_times = timing.get("step_times", {})
-                st.info(f"""
-                ⏱️ **Total Time: {total_time:.2f}s**
-                - Step 1: {step_times.get('rubric_extraction', 0):.2f}s | Step 2: {step_times.get('criteria_scoring', 0):.2f}s
-                - Step 3: {step_times.get('score_calculation', 0):.2f}s | Step 4: {step_times.get('qualification_generation', 0):.2f}s
-                """)
-
             st.markdown("### 👍 Feedback")
             st.markdown("Help us improve the matching score algorithm.")
             
             # Debug information
-            if session_id:
-                st.caption(f"✅ Session ID: `{session_id}`")
+            if trace_id:
+                st.caption(f"✅ Trace ID: `{trace_id[:16]}...`")
             else:
-                st.caption(f"⚠️ No Session ID (Langfuse enabled: {LANGFUSE_ENABLED})")
+                st.caption(f"⚠️ No Trace ID (Langfuse enabled: {LANGFUSE_ENABLED})")
             
             with st.form("feedback_form_main"):
                 human_score = st.number_input(
@@ -683,67 +674,53 @@ def main():
                     except Exception as e:
                         st.error(f"Failed to re-initialize Langfuse: {e}")
 
+                # Debug information
+                st.info(f"""
+                **Debug Info:**
+                - Langfuse Enabled: {LANGFUSE_ENABLED}
+                - Langfuse Client: {'✅ Available' if langfuse_client else '❌ None'}
+                - Trace ID: {'✅ ' + str(trace_id)[:32] + '...' if trace_id else '❌ None'}
+                """)
 
-                if LANGFUSE_ENABLED and langfuse_client and session_id:
+                if LANGFUSE_ENABLED and langfuse_client and trace_id:
                     try:
-                        # Query Langfuse API to find traces with this session_id
-                        import requests
-                        import base64
+                        # Log score to Langfuse
+                        # Try different SDK methods depending on version
+                        score_submitted = False
                         
-                        public_key = os.getenv("LANGFUSE_PUBLIC_KEY")
-                        secret_key = os.getenv("LANGFUSE_SECRET_KEY")
-                        host = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
+                        # Method 1: Direct score() method (v3.x)
+                        if hasattr(langfuse_client, 'score'):
+                            try:
+                                langfuse_client.score(
+                                    trace_id=trace_id,
+                                    name="human_correction",
+                                    value=human_score,
+                                    comment=feedback_notes
+                                )
+                                score_submitted = True
+                            except Exception as e1:
+                                st.warning(f"Method 1 failed: {e1}")
                         
-                        # Create basic auth header
-                        credentials = base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
-                        headers = {
-                            "Authorization": f"Basic {credentials}",
-                            "Content-Type": "application/json"
-                        }
+                        # Method 2: create_score() method (v2.x)
+                        if not score_submitted and hasattr(langfuse_client, 'create_score'):
+                            try:
+                                langfuse_client.create_score(
+                                    trace_id=trace_id,
+                                    name="human_correction",
+                                    value=human_score,
+                                    comment=feedback_notes
+                                )
+                                score_submitted = True
+                            except Exception as e2:
+                                st.warning(f"Method 2 failed: {e2}")
                         
-                        with st.spinner("🔍 Finding traces for this session..."):
-                            # Query traces by session_id
-                            response = requests.get(
-                                f"{host}/api/public/traces",
-                                headers=headers,
-                                params={"sessionId": session_id, "limit": 10}
-                            )
-                            
-                            if response.status_code == 200:
-                                traces_data = response.json()
-                                traces = traces_data.get("data", [])
-                                
-                                if traces:
-                                    st.info(f"✅ Found {len(traces)} trace(s) for session `{session_id}`")
-                                    
-                                    # Submit score to all traces in this session
-                                    scores_submitted = 0
-                                    for trace in traces:
-                                        trace_id_found = trace.get("id")
-                                        if trace_id_found:
-                                            try:
-                                                langfuse_client.create_score(
-                                                    trace_id=trace_id_found,
-                                                    name="human_correction",
-                                                    value=human_score,
-                                                    comment=feedback_notes if feedback_notes else None
-                                                )
-                                                scores_submitted += 1
-                                            except Exception as e:
-                                                st.warning(f"⚠️ Failed to score trace {trace_id_found[:16]}: {e}")
-                                    
-                                    if scores_submitted > 0:
-                                        langfuse_client.flush()
-                                        st.success(f"✅ Feedback submitted to {scores_submitted} trace(s) in Langfuse!")
-                                        st.info(f"📍 Session: `{session_id}`")
-                                    else:
-                                        st.error("❌ Failed to submit scores to any traces")
-                                else:
-                                    st.warning(f"⚠️ No traces found for session `{session_id}`. Wait a few seconds for Langfuse to index, then try again.")
-                            else:
-                                st.error(f"❌ Failed to query Langfuse API: {response.status_code}")
-                                st.code(response.text)
-                            
+                        if score_submitted:
+                            if hasattr(langfuse_client, 'flush'):
+                                langfuse_client.flush()  # Ensure the score is sent
+                            st.success("✅ Feedback submitted to Langfuse!")
+                        else:
+                            st.error("❌ Could not find a compatible method to submit feedback to Langfuse")
+                            st.info(f"Available methods: {[m for m in dir(langfuse_client) if 'score' in m.lower()]}")
                     except Exception as e:
                         st.error(f"❌ Failed to submit feedback: {e}")
                         import traceback
@@ -752,10 +729,9 @@ def main():
                     st.warning("⚠️ Langfuse is not enabled. Check your .env file for LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY.")
                 elif not langfuse_client:
                     st.warning("⚠️ Langfuse client is not initialized. Check the sidebar for initialization status.")
-                elif not session_id:
-                    st.warning("⚠️ No session ID found. The evaluation may not have been tracked properly. Try running a new evaluation.")
-
-        # --- Full-width sections below ---
+                elif not trace_id:
+                    st.warning("⚠️ No trace ID found. The evaluation may not have been tracked properly. Try running a new evaluation.")
+        
         st.divider()
         
         # Rubric Criteria
@@ -773,7 +749,7 @@ def main():
         
         st.dataframe(
             criteria_df_data,
-            width='stretch',
+            width="stretch",
             hide_index=True
         )
         
@@ -785,8 +761,7 @@ def main():
         empty_evidence_count = 0
         
         for breakdown_item in result["breakdown"]:
-            # Get reasoning, evidence and gap, ensuring they're strings
-            reasoning = breakdown_item.get("reasoning", "") or ""
+            # Get evidence and gap, ensuring they're strings
             evidence = breakdown_item.get("evidence", "") or ""
             gap = breakdown_item.get("gap", "") or ""
             
@@ -804,7 +779,7 @@ def main():
                 "Criterion": breakdown_item["criterion"],
                 "Score": breakdown_item["score"],
                 "Weight": f"{breakdown_item['weight']:.1f}%",
-                "Reasoning": reasoning,
+                "Contribution": f"{breakdown_item['contribution']:.2f}",
                 "Evidence": evidence,
                 "Gap": gap
             })
@@ -827,7 +802,6 @@ def main():
                     {
                         "criteria_name": cs.criteria_name,
                         "score": cs.score,
-                        "reasoning": cs.reasoning,
                         "evidence": cs.evidence,
                         "gap": cs.gap
                     }
@@ -837,7 +811,7 @@ def main():
         
         st.dataframe(
             summary_data,
-            width='stretch',
+            width="stretch",
             hide_index=True
         )
         
@@ -948,7 +922,6 @@ def main():
                 {
                     "criteria_name": cs.criteria_name,
                     "score": cs.score,
-                    "reasoning": cs.reasoning,
                     "evidence": cs.evidence,
                     "gap": cs.gap
                 }
