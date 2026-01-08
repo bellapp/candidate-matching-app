@@ -2387,7 +2387,72 @@ All output must be in English, even if the input is in another language.
         ),
     ]
 )
+QUALIFICATION_SUMMARY = """
+You are an expert at creating ultra-concise takeaway summaries for hiring managers.
 
+## LANGUAGE
+Write the entire summary in the language specified in the "Language" field. If the language is:
+- A full language name (e.g., "Spanish", "French", "English", "Arabic"), write fully in that language.
+- An ISO code (e.g., "es", "fr", "en", "ar"), write in the corresponding language.
+- If not specified, default to English.
+
+## YOUR MISSION
+Transform a detailed qualification note into a BRIEF takeaway (30 seconds to read) that captures the essence of the candidate fit.
+
+## INPUT
+You will receive a comprehensive qualification note and must extract ONLY the most critical information.
+
+## OUTPUT FORMAT - ULTRA CONCISE
+Generate a clean HTML summary with ONLY these 3 sections (use simple HTML tags: <b>, <p>, <ul>, <li>):
+
+<b>VERDICT</b>
+<p>1 sentence: Fit level + key reason + recommendation (max 25 words)</p>
+
+<b>TOP 3 STRENGTHS</b>
+<ul>
+<li>Strength 1 (max 10 words)</li>
+<li>Strength 2 (max 10 words)</li>
+<li>Strength 3 (max 10 words)</li>
+</ul>
+
+<b>KEY CONCERN</b>
+<p>1 sentence: Most critical gap or risk (max 20 words)</p>
+
+## STRICT RULES
+- **VERDICT**: Maximum 25 words total, must include fit level (Strong/Good/Moderate/Weak Match) and recommendation (Interview/Pass/Verify)
+- **STRENGTHS**: Exactly 3 bullets, each maximum 10 words, focus on most impactful qualifications
+- **CONCERN**: Maximum 20 words, focus on the #1 most important issue only
+- **NO extra sections, NO additional details, NO emojis**
+- **Clean HTML**: Use only <b>, <p>, <ul>, <li> tags
+- **Total reading time**: 30 seconds maximum
+
+## EXAMPLE OUTPUT
+
+<b>VERDICT</b>
+<p><b>Strong Match</b> - 7+ years Python/Django, proven leadership. <b>Interview</b> - verify cloud skills.</p>
+
+<b>TOP 3 STRENGTHS</b>
+<ul>
+<li>Exceeds experience requirement (7 years vs 5+ needed)</li>
+<li>Led engineering team, strong technical leadership</li>
+<li>Excellent communication and problem-solving skills</li>
+</ul>
+
+<b>KEY CONCERN</b>
+<p>Limited AWS/DevOps experience - needs assessment in technical interview.</p>
+
+## INSTRUCTIONS
+1. Read the qualification note
+2. Extract ONLY the most critical information
+3. **Write in the language specified in the "Language" field**
+4. Keep it ULTRA brief - 30 seconds to read maximum
+5. Return ONLY the HTML content (3 sections: VERDICT, TOP 3 STRENGTHS, KEY CONCERN)
+6. Be decisive and direct
+
+Now, generate the ultra-concise takeaway in {language} for this qualification note:
+
+{qualification_note}
+"""
 QUALIFICATION_GENERATION_PROMPT = """You are a senior talent acquisition specialist with 15+ years of experience in technical and executive recruitment. Your expertise lies in conducting thorough candidate assessments that provide hiring managers with actionable insights for decision-making.
 
 ## YOUR MISSION
@@ -3062,17 +3127,19 @@ For every "Hard Skill" or "Experience" criterion, you must first calculate the *
 * **Concurrent Roles:** Do not double count overlapping dates.
 * **Legacy/Dormant:** If a skill was last used >5 years ago, apply a **50% penalty** to its duration.
 
-### STEP 2: DETERMINE SENIORITY LEVELS (The "Level" Step)
+### STEP 2: DETERMINE SENIORITY LEVELS (The "Level" Step) 🚨 MANDATORY FOR OVERQUALIFICATION CHECK
 Assign a level (1-5) to both the **Job Requirement** and the **Candidate**:
-* **Level 1 (Entry/Junior/Intern):** New to workforce, requires supervision, focuses on learning, < 2 years.
-* **Level 2 (Mid/Medior/Intermediate):** Works independently, owns tasks, 2-6 years.
-* **Level 3 (Senior):** Significant expertise, strategic thinking, 8+ years.
-* **Level 4 (Lead/Staff/Principal):** Technical leadership, org-wide system design, innovation.
-* **Level 5 (Management/Executive):** Formal leadership (Manager, Director, VP, C-suite).
+* **Level 1 (Entry/Junior/Intern):** New to workforce, requires supervision, focuses on learning, 0-2 years.
+* **Level 2 (Mid/Medior/Intermediate):** Works independently, owns tasks, 2-5 years.
+* **Level 3 (Senior):** Significant expertise, strategic thinking, 5-10 years.
+* **Level 4 (Lead/Staff/Expert):** Technical leadership, deep expertise, 10-15 years.
+* **Level 5 (Principal/Management/Executive):** Formal leadership or industry authority, 15+ years.
 
-### STEP 3: ASSIGN SCORE (The "Matrix" Step)
+**⚠️ CRITICAL: You MUST record both levels for EVERY criterion to check Rule C later!**
 
-**RULE A: The Seniority Gap (Crucial)**
+### STEP 3: CALCULATE BASE SCORE (The "Matrix" Step)
+
+**RULE A: The Seniority Gap (Under-Qualified)**
 * **IF** Candidate is Level 1 (< 1 year) **AND** Job is Level 3 (Senior):
     * **MAXIMUM SCORE IS 40.** (No exceptions, even if they list the skill).
 * **IF** Candidate is Level 2 (Mid) **AND** Job is Level 3 (Senior):
@@ -3083,12 +3150,89 @@ Assign a level (1-5) to both the **Job Requirement** and the **Candidate**:
     * **Score must be < 50.** (Partial matches are failing grades for Senior roles).
     * **Exception:** If the rubric says "OR" (e.g., "React OR Vue"), one match is sufficient for a high score.
 
-**RULE C: The Overqualification Penalty**
-* **IF** Candidate Level > Job Level (Overqualified):
-    * Calculate Level Difference = (Candidate Level - Job Level).
-    * **Apply a 15% penalty per level of difference** to the calculated score.
-    * **APPLY TO:** Only "Job Title Match", "Experience Years" and "Hard Skills" criterias.
-    * *Example: Level 3 Profile for Level 1 Job = 2 levels diff = 30% penalty (Score of 100 becomes 70).*
+---
+
+## 🚨🚨🚨 STEP 3.5: MANDATORY OVERQUALIFICATION CHECK 🚨🚨🚨
+
+**RULE C: The Overqualification Penalty (CRITICAL - NEVER SKIP THIS)**
+
+**This rule is MANDATORY and must be applied to ALL these criteria types:**
+- ✅ "Job Title Match" 
+- ✅ "Experience Years"
+- ✅ "Hard Skills" (any criterion with "Hard Skills" in the name)
+- ❌ Soft Skills, Languages, Education, Location (skip for these)
+
+**WHEN TO APPLY:**
+**IF** Candidate Level > Job Level (meaning candidate is MORE experienced than the job requires)
+
+**HOW TO CALCULATE:**
+1. **Identify Level Gap:** Level Difference = (Candidate Level - Job Level)
+2. **Calculate Penalty:** Penalty = Level Difference × 15%
+3. **Apply Penalty:** Final Score = Base Score × (1 - Penalty)
+
+**WORKED EXAMPLES (STUDY THESE CAREFULLY):**
+
+**Example 1: "Experience Years" Criterion - COMMON MISTAKE TO AVOID!**
+- Job Requirement: "1+ year in HVAC" → **Job Level = 1 (Junior, 1 year requirement)**
+- Candidate: Multiple years in HVAC → **Candidate Level = 2 (Mid, based on tenure)**
+- Base Score Calculation: Has more than 1 year → Base Score = 90
+- **⚠️ CRITICAL CHECK: Candidate has MORE experience than required!**
+- **OVERQUALIFICATION CHECK (MANDATORY):**
+  - Level Difference = 2 - 1 = **1 level**
+  - Penalty = 1 × 15% = **15%**
+  - **Final Score = 90 × (1 - 0.15) = 76.5 → 76** ✅
+- Gap: "Candidate significantly exceeds the experience requirement (flight risk)"
+- Evidence: "More than 1 year HVAC experience. Base 90, overqualified by 1 level (15% penalty applied) = 76."
+- ❌ **WRONG**: Score = 90, Gap = "Candidate significantly exceeds..." (NO PENALTY APPLIED!)
+- ❌ **WRONG**: Score = 100 (Base score without penalty!)
+
+**Example 2: "Hard Skills" Criterion - ANOTHER COMMON MISTAKE!**
+- Job Requirement: "HVAC systems knowledge" for junior role → **Job Level = 1 (Junior)**
+- Candidate: Extensive HVAC experience (10+ years) → **Candidate Level = 3 (Senior)**
+- Base Score Calculation: Has the skill → Base Score = 80
+- **⚠️ CRITICAL CHECK: Candidate is SENIOR level for JUNIOR requirement!**
+- **OVERQUALIFICATION CHECK (MANDATORY):**
+  - Level Difference = 3 - 1 = **2 levels**
+  - Penalty = 2 × 15% = **30%**
+  - **Final Score = 80 × (1 - 0.30) = 56** ✅
+- Evidence: "10+ years HVAC knowledge. Base 80, overqualified by 2 levels (30% penalty applied) = 56."
+- ❌ **WRONG**: Score = 80, Gap = "Candidate has required skills but..." (NO PENALTY APPLIED!)
+
+**Example 3: "Job Title Match" Criterion**
+- Job Requirement: "Service Coordinator" (Mid-level) → **Job Level = 2 (Mid)**
+- Candidate: "Manager" title → **Candidate Level = 5 (Management)**
+- Base Score Calculation: Similar coordination role → Base Score = 40
+- **OVERQUALIFICATION CHECK:**
+  - Level Difference = 5 - 2 = **3 levels**
+  - Penalty = 3 × 15% = **45%**
+  - **Final Score = 40 × (1 - 0.45) = 22** ✅
+- Evidence: "Manager title vs Service Coordinator role. Base 40, overqualified by 3 levels (45% penalty applied) = 22."
+
+**Example 4: Languages Criterion (NO PENALTY)**
+- Job Requirement: "Dutch and French"
+- Candidate: Native speaker, multiple languages
+- Base Score: 100
+- **OVERQUALIFICATION CHECK:** ❌ SKIP - Language criteria are exempt
+- **Final Score = 100** (no penalty)
+
+**🚨 PATTERN RECOGNITION - IF YOU SEE THIS, YOU MUST APPLY PENALTY:**
+- Gap says "exceeds", "significantly more", "overqualified" → **PENALTY REQUIRED!**
+- Base score is 80+ for junior/entry roles → **CHECK LEVELS!**
+- Candidate has 5+ years for 1-2 year requirement → **PENALTY REQUIRED!**
+- If you wrote "exceeds requirement" in Gap but score is >75 → **YOU FORGOT THE PENALTY!**
+
+**WHY THIS MATTERS:**
+- Overqualified candidates are **flight risks** (boredom, salary mismatch, leaving quickly)
+- They may feel **unchallenged** and underutilized
+- This penalty reflects **realistic hiring concerns**, not candidate ability
+
+---
+
+**🔒 VERIFICATION CHECKPOINT:**
+For each "Experience Years", "Job Title Match", or "Hard Skills" criterion, ensure:
+- ✓ Job Level and Candidate Level determined
+- ✓ Overqualification penalty applied if Candidate Level > Job Level
+- ✓ Penalty documented in "evidence" field
 
 ### STEP 4: LANGUAGE SCORING (THE "MAX VALUE" PROTOCOL)
 **CRITICAL:** Do NOT average scores. Do NOT stop early. You must calculate TWO scores and pick the highest.
@@ -3213,6 +3357,59 @@ Gap: "Requirement is Electrical Maintenance (hands-on field work). Candidate's r
 | **61-79** | **Match** | Candidate meets the core requirement but lacks "Senior" depth. |
 | **80-100** | **Perfect** | Candidate meets or exceeds the EXACT years and specific tools requested. |
 
+## 📊 OVERQUALIFICATION IMPACT TABLE (Contextual)
+
+**This table shows score impacts based on the NEW logic:**
+
+| Gap (Cand - Job) | Risk Level | Action | Score Impact |
+|------------------|------------|--------|--------------|
+| **+1 Level** | Low (Benefit) | **NO PENALTY** | Score remains high (90-100) |
+| **+2 Levels** | Medium | **Check Context** | -10% ONLY if flight risk |
+| **+3 Levels** | High | **APPLY PENALTY** | -30% (Mandatory) |
+| **+4 Levels** | Extreme | **APPLY PENALTY** | -50% (Mandatory) |
+
+**🚨 CRITICAL INSIGHT:**
+- If candidate is +1 level overqualified → **Do NOT penalize**. Score should be 90-100.
+- If candidate is +3 levels overqualified → **MUST penalize**. Score < 70.
+
+---
+
+o## 🚨 SCORE CALIBRATION RULES (MANDATORY - STRICTLY ENFORCED)
+
+### RULE F: The "100 is Rare" Rule
+**🚫 FORBIDDEN: Giving Education, Language, or Industry Experience 100/100.**
+
+### RULE G: Location & Travel Default
+If not mentioned → Score 75-80 (not 0).
+
+### RULE H: Language Proficiency Scale
+Native/C2=85 max | Fluent/C1=80-85 | Good/B2=75-80 | Medium/B1=65-75 | Basic/A2=45-60
+
+### RULE I: IT Tools Default
+Senior professionals (3+ years) with no IT Tools listed → Score 75-85 (not 0).
+
+### RULE J: Junior Role Overqualification (MANDATORY CAPS)
+| Job Requires | Candidate Has | MAX SCORE |
+|--------------|---------------|-----------|
+| 1-2 years | 10+ years | **MAX 55** |
+| 2-3 years | 10+ years | **MAX 70** |
+
+**Example:** Job needs 2 years, candidate has 14 years → MAX SCORE IS 55 (not 90!)
+
+### RULE K: Score Compression (HARD LIMITS)
+| Criterion | MAXIMUM ALLOWED |
+|-----------|-----------------|
+| Education | **MAX 85** (even if degree matches perfectly) |
+| Languages | **MAX 85** (even if fluent) |
+| Industry | **MAX 85** (even if years exceed requirement) |
+| Experience Years | **MAX 85** OR apply overqualification penalty |
+
+### RULE L: Critical Skills Minimum Floor
+5+ years industry experience + missing CRITICAL skill → **MIN SCORE 50** (not 20).
+
+### RULE M: Distribution Check
+**MAX 3 criteria can score >90.** If you have 4+ criteria >90, RECALIBRATE DOWN.
+
 ---
 
 ## 🚨 OUTPUT RULES
@@ -3223,10 +3420,30 @@ Return **ONLY valid JSON**. Do not output markdown code blocks or conversational
 ```json
 {{
   "criteria_scores": [
-    {{ "criteria_name": "Exact Name from Rubric", "score": 0, "evidence": "STRICT FORMAT: [Total Months/Years Calculated] of experience. [Quote from CV].", "gap": "Explain WHY the score is low (e.g., 'Target is 5 years, Candidate has 0.6 years'). Leave empty if score > 80." }}
+    {{ 
+      "criteria_name": "Exact Name from Rubric", 
+      "score": 0, 
+      "evidence": "STRICT FORMAT: [Total Months/Years Calculated] of experience. [Quote from CV]. **IF OVERQUALIFIED:** MUST include 'Base [X], overqualified by [N] level(s) ([P]% penalty applied) = [Final Score].'", 
+      "gap": "Explain WHY the score is low (e.g., 'Target is 5 years, Candidate has 0.6 years'). For overqualification: 'Candidate significantly exceeds requirement (flight risk)'. Leave empty if score > 80." 
+    }}
   ]
 }}
+```
+
+**FINAL VALIDATION:**
+- ✓ All scores between 0-100
+- ✓ Rule F: Not all 100s (use full range)
+- ✓ Rule G: Location not 0 unless explicit refusal
+- ✓ Rule H: Medium language = 65-75 (not 50)
+- ✓ Rule I: IT Tools for seniors = 75-85 (not 0)
+- ✓ Rule J: 10+ yr for Junior role = 30%+ penalty
+- ✓ Rule K: Education/Language/Industry ≤ 85 if just meeting requirement
+- ✓ Rule L: Critical skills with 5+ yr experience ≥ 50
+- ✓ Rule M: Max 3 scores > 90
+
+**OUTPUT NOW - Return valid JSON only, no explanations.**
 """
+
 CRITERIA_SCORING_PROMPT_WITH_REASONING = """You are an algorithmic HR evaluator designed to screen candidates with strict, unbiased logic.
 
 ## YOUR MISSION
@@ -3251,17 +3468,19 @@ For every "Hard Skill" or "Experience" criterion, you must first calculate the *
 * **Concurrent Roles:** Do not double count overlapping dates.
 * **Legacy/Dormant:** If a skill was last used >5 years ago, apply a **50% penalty** to its duration.
 
-### STEP 2: DETERMINE SENIORITY LEVELS (The "Level" Step)
+### STEP 2: DETERMINE SENIORITY LEVELS (The "Level" Step) 🚨 MANDATORY FOR OVERQUALIFICATION CHECK
 Assign a level (1-5) to both the **Job Requirement** and the **Candidate**:
-* **Level 1 (Entry/Junior/Intern):** New to workforce, requires supervision, focuses on learning, < 2 years.
-* **Level 2 (Mid/Medior/Intermediate):** Works independently, owns tasks, 2-6 years.
-* **Level 3 (Senior):** Significant expertise, strategic thinking, 8+ years.
-* **Level 4 (Lead/Staff/Principal):** Technical leadership, org-wide system design, innovation.
-* **Level 5 (Management/Executive):** Formal leadership (Manager, Director, VP, C-suite).
+* **Level 1 (Entry/Junior/Intern):** New to workforce, requires supervision, focuses on learning, 0-2 years.
+* **Level 2 (Mid/Medior/Intermediate):** Works independently, owns tasks, 2-5 years.
+* **Level 3 (Senior):** Significant expertise, strategic thinking, 5-10 years.
+* **Level 4 (Lead/Staff/Expert):** Technical leadership, deep expertise, 10-15 years.
+* **Level 5 (Principal/Management/Executive):** Formal leadership or industry authority, 15+ years.
 
-### STEP 3: ASSIGN SCORE (The "Matrix" Step)
+**⚠️ CRITICAL: You MUST record both levels for EVERY criterion to check Rule C later!**
 
-**RULE A: The Seniority Gap (Crucial)**
+### STEP 3: CALCULATE BASE SCORE (The "Matrix" Step)
+
+**RULE A: The Seniority Gap (Under-Qualified)**
 * **IF** Candidate is Level 1 (< 1 year) **AND** Job is Level 3 (Senior):
     * **MAXIMUM SCORE IS 40.** (No exceptions, even if they list the skill).
 * **IF** Candidate is Level 2 (Mid) **AND** Job is Level 3 (Senior):
@@ -3272,12 +3491,84 @@ Assign a level (1-5) to both the **Job Requirement** and the **Candidate**:
     * **Score must be < 50.** (Partial matches are failing grades for Senior roles).
     * **Exception:** If the rubric says "OR" (e.g., "React OR Vue"), one match is sufficient for a high score.
 
-**RULE C: The Overqualification Penalty**
-* **IF** Candidate Level > Job Level (Overqualified):
-    * Calculate Level Difference = (Candidate Level - Job Level).
-    * **Apply a 15% penalty per level of difference** to the calculated score.
-    * **APPLY TO:** Only "Job Title Match" and "Hard Skill" criteria.
-    * *Example: Level 3 Profile for Level 1 Job = 2 levels diff = 30% penalty (Score of 100 becomes 70).*
+**RULE D: The "Implicit Skill" Inference (Avoid False Negatives)**
+* **IF** a skill/tool is NOT explicitly listed in the CV,
+* **BUT** it is a standard, fundamental requirement for the candidate's verified role/seniority (e.g., "MS Office" for a Project Manager, "Teamwork" for a Team Lead),
+* **THEN** **DO NOT SCORE 0**.
+    * **Score 75-85 (Inferred Match):** If the skill is standard for their seniority/role.
+    * **Score 50-60 (Weak Inference):** If it's possible but not guaranteed.
+    * **Score 0:** Only if there is NO reasonable basis to infer it.
+* **Logic:** Senior professionals often omit basic skills (like Word/Excel/Email) from their CVs. Do not penalize them for this efficiency.
+
+**RULE E: Soft Skills Inference**
+* **IF** scoring "Soft Skills" (Leadership, Communication, Teamwork),
+* **AND** the CV lacks explicit keywords,
+* **THEN** infer from responsibilities:
+    * "Managed team" → Leadership & Communication (Score 80-90)
+    * "Collaborated with X" → Teamwork (Score 80-90)
+    * "Presented to clients" → Communication (Score 80-90)
+* **Logic:** Actions speak louder than keywords.
+
+---
+
+## 🚨🚨🚨 STEP 3.5: CONTEXTUAL OVERQUALIFICATION ASSESSMENT 🚨🚨🚨
+
+**RULE C: The Overqualification Assessment (Use Wisdom, Not Just Math)**
+
+**This rule applies to:**
+- ✅ "Job Title Match" 
+- ✅ "Experience Years"
+- ✅ "Hard Skills"
+- ❌ Soft Skills, Languages, Education, Location
+
+**WHEN TO PENALIZE:**
+Only apply a penalty if the overqualification represents a **Genuine Flight Risk** or **Role Mismatch**.
+* **Do NOT penalize** if the candidate is simply "very good" or "expert".
+* **Do NOT penalize** if the gap is small (e.g., 6 years exp for a 4-year requirement).
+* **DO Penalize** if the mismatch is extreme (e.g., CEO applying for Junior role).
+
+**HOW TO CALCULATE (Softened Logic):**
+1. **Identify Level Gap:** Level Difference = (Candidate Level - Job Level)
+2. **Determine if Penalty is Needed:**
+   - Gap = 1 Level (e.g., Mid for Junior): **NO PENALTY** (Benefits the employer).
+   - Gap = 2 Levels (e.g., Senior for Junior): **Possible Penalty** (10-15%) if flight risk is noted.
+   - Gap ≥ 3 Levels (e.g., Executive for Junior): **MANDATORY PENALTY** (30-50%).
+3. **Apply Penalty (If needed):** Final Score = Base Score × (1 - Penalty)
+
+**WORKED EXAMPLES:**
+
+**Example 1: "Experience Years" (No Penalty - Benefit)**
+- Job: "3+ years (Mid)"
+- Candidate: "8 years (Senior)"
+- Gap: 1 Level.
+- **Decision:** No Penalty. High experience is a benefit.
+- **Score:** 90-100.
+
+**Example 2: "Job Title" (Extreme Mismatch - Penalty)**
+- Job: "Junior Developer"
+- Candidate: "CTO / VP Engineering"
+- Gap: 4 Levels.
+- **Decision:** Penalty Required. Flight risk is extremely high.
+- **Score:** Base 40 (Mismatch) - 50% Penalty = 20.
+
+**Example 3: "Hard Skills" (Expertise - No Penalty)**
+- Job: "Python Knowledge"
+- Candidate: "Python Expert / Core Contributor"
+- **Decision:** No Penalty. Expertise is valuable.
+- **Score:** 100.
+
+**🚨 PATTERN RECOGNITION - OVERQUALIFICATION:**
+- If Gap is small (1-2 levels) → **Lean towards NO PENALTY (Score 85-100)**.
+- If Gap is huge (3+ levels) → **Apply Penalty (Score < 60)**.
+- **Key Question:** "Would this person reasonably do this job for >1 year?"
+
+---
+
+**🔒 VERIFICATION CHECKPOINT (MANDATORY):**
+Before moving to Step 4, ensure:
+- ✓ Applied Rule D (Implicit Skills) to avoid scoring 0 for standard tools
+- ✓ Applied Rule E (Soft Skills) to infer traits from actions
+- ✓ Used Contextual Overqualification logic (only penalize extreme gaps ≥3 levels)
 
 ### STEP 4: LANGUAGE SCORING (THE "MAX VALUE" PROTOCOL)
 **CRITICAL:** Do NOT average scores. Do NOT stop early. You must calculate TWO scores and pick the highest.
@@ -3402,12 +3693,177 @@ Gap: "Requirement is Electrical Maintenance (hands-on field work). Candidate's r
 | **61-79** | **Match** | Candidate meets the core requirement but lacks "Senior" depth. |
 | **80-100** | **Perfect** | Candidate meets or exceeds the EXACT years and specific tools requested. |
 
+## 📊 OVERQUALIFICATION IMPACT TABLE (Contextual)
+
+**This table shows score impacts based on the NEW logic:**
+
+| Gap (Cand - Job) | Risk Level | Action | Score Impact |
+|------------------|------------|--------|--------------|
+| **+1 Level** | Low (Benefit) | **NO PENALTY** | Score remains high (90-100) |
+| **+2 Levels** | Medium | **Check Context** | -10% ONLY if flight risk |
+| **+3 Levels** | High | **APPLY PENALTY** | -30% (Mandatory) |
+| **+4 Levels** | Extreme | **APPLY PENALTY** | -50% (Mandatory) |
+
+**🚨 CRITICAL INSIGHT:**
+- If candidate is +1 level overqualified → **Do NOT penalize**. Score should be 90-100.
+- If candidate is +3 levels overqualified → **MUST penalize**. Score < 70.
+
+---
+
+## 🚨 SCORE CALIBRATION RULES (CRITICAL - Prevents Over/Under-scoring)
+
+### RULE F: The "100 is Rare" Rule
+**100/100 should be EXCEPTIONAL.** Only give 100 when:
+- Candidate EXCEEDS the requirement with explicit, quantifiable evidence
+- There is no ambiguity or inference needed
+
+**Score Calibration:**
+| Match Quality | Score Range | Example |
+|---------------|-------------|---------|
+| **Exceeds** requirement | 90-100 | Req: 3 years, Has: 8 years with proof |
+| **Meets** requirement exactly | 80-89 | Req: 3 years, Has: 3-4 years |
+| **Mostly meets** | 70-79 | Req: 3 years, Has: 2 years |
+| **Partially meets** | 50-69 | Some evidence but gaps |
+| **Weak/Inferred** | 30-49 | Minimal evidence, heavy inference |
+| **Missing** | 0-29 | No evidence AND cannot be inferred |
+
+**🚫 FORBIDDEN: Giving ALL criteria 100/100.** This is unrealistic. Use the full score range.
+
+### RULE G: Location & Travel Default Score
+**IF** the rubric asks about Location/Travel/Mobility,
+**AND** the CV does NOT explicitly mention willingness to travel,
+**THEN** **DO NOT SCORE 0.**
+- **Score 75-80 (Neutral Assumption):** Unless the candidate is in a completely incompatible location.
+- **Score 0:** ONLY if the candidate explicitly states they CANNOT travel or relocate.
+- **Logic:** Most candidates accept standard travel requirements by default.
+
+### RULE H: Language Proficiency Calibration
+Use this scale for language scoring:
+| Proficiency Level | Score Range |
+|-------------------|-------------|
+| Native / Mother tongue / C2 | 95-100 |
+| Fluent / Bilingual / C1 | 85-95 |
+| Good / Professional / B2 | 75-85 |
+| **Medium / Intermediate / B1** | **65-75** (NOT 50!) |
+| Basic / Elementary / A2 | 45-60 |
+| Beginner / A1 | 20-40 |
+| Not mentioned | Apply Rule D (infer from location/CV language) |
+
+**🚫 FORBIDDEN: Scoring "Medium proficiency" as 50. Medium = B1 = 65-75.**
+
+### RULE I: IT Tools / Standard Software Default
+**IF** the rubric asks about "IT Tools", "MS Office", or "Standard Software",
+**AND** the candidate is a professional with 3+ years experience,
+**AND** the CV does NOT explicitly list these tools,
+**THEN** **DO NOT SCORE 0.**
+- **Score 75-85 (Inferred Competence):** Senior professionals use standard tools by default.
+- **Score 0:** ONLY if the candidate's role explicitly contradicts tool usage (e.g., manual labor role).
+- **Logic:** A KYC analyst with 5 years of banking experience MUST use IT tools daily.
+
+### RULE J: Overqualification Enforcement (MANDATORY - NO EXCEPTIONS)
+**🚨 CRITICAL: Overqualified candidates CANNOT score above the cap!**
+
+| Job Requires | Candidate Has | Gap | MAXIMUM SCORE |
+|--------------|---------------|-----|---------------|
+| **1-2 years** | 5-7 years | +2 levels | **MAX 75** |
+| **1-2 years** | 8-10 years | +3 levels | **MAX 65** |
+| **1-2 years** | 10+ years | +4 levels | **MAX 55** |
+| **3-5 years** | 10+ years | +2 levels | **MAX 75** |
+
+**WORKED EXAMPLE (MANDATORY - FOLLOW THIS EXACTLY):**
+- Job: "2+ years experience required"
+- Candidate: "14 years experience"
+- Gap: +4 levels (Junior req vs Expert candidate)
+
+**STEP-BY-STEP CALCULATION:**
+1. Base score for having experience: 100
+2. Gap = 14 - 2 = 12 extra years = +4 levels
+3. Penalty for +4 level gap: 45%
+4. Final: 100 × 0.55 = **55**
+
+❌ **WRONG**: "90 - candidate has extensive experience"
+✅ **CORRECT**: "55 - 14 years vs 2 years req, overqualified by 4 levels, 45% penalty applied"
+
+**ANOTHER MANDATORY EXAMPLE:**
+- Job: "1 year HVAC experience"  
+- Candidate: "10 years HVAC experience"
+- ❌ WRONG: Score 100 ("far exceeds")
+- ✅ CORRECT: Score **60** (10yr vs 1yr = +3-4 level gap, 40% penalty)
+
+### RULE K: Score Compression - MANDATORY CAPS (STRICTLY ENFORCED)
+**🚨 HARD LIMITS - NEVER EXCEED:**
+
+| Criterion Type | MAXIMUM ALLOWED | When 100 is Allowed |
+|----------------|-----------------|---------------------|
+| **Education** | **MAX 85** | NEVER (unless PhD when only HS required) |
+| **Languages** | **MAX 85** | ONLY if native + 2 extra languages |
+| **Industry Experience** | **MAX 85** | NEVER (experience alone doesn't warrant 100) |
+| **Experience Years** | **MAX 85** | ONLY if perfect match (e.g., 5yr req, 5-6yr candidate) |
+| **Hard Skills (common)** | **MAX 85** | ONLY with certifications/patents |
+
+**🚫 STRICTLY FORBIDDEN (AUTOMATIC FAILURE):**
+- Education = 90+ just because degree matches → **MUST BE 80-85**
+- Languages = 90+ for "fluent" → **MUST BE 80-85**
+- Industry = 90+ for working in the field → **MUST BE 80-85**
+- Experience Years = 90+ when overqualified → **MUST APPLY PENALTY**
+
+**WORKED EXAMPLE 1 (MANDATORY):**
+- Job requires: Bachelor's in CS
+- Candidate has: Bachelor's in CS
+- ❌ WRONG: Score 100 ("matches requirement")
+- ✅ CORRECT: Score **82** ("meets requirement - standard match")
+
+**WORKED EXAMPLE 2 (MANDATORY):**
+- Job requires: Fluent Dutch + English
+- Candidate: Native Dutch, Professional English
+- ❌ WRONG: Score 95 ("exceeds requirement")
+- ✅ CORRECT: Score **82** ("meets requirement exactly")
+
+**WORKED EXAMPLE 3 (MANDATORY):**
+- Job requires: 2+ years HVAC experience  
+- Candidate has: 10+ years HVAC experience
+- ❌ WRONG: Score 100 ("far exceeds requirement")
+- ✅ CORRECT: Score **70** (overqualified by 2+ levels, 30% penalty)
+
+### RULE L: Critical Skills Minimum Floor (MANDATORY)
+**IF** the rubric marks a skill as "CRITICAL" or important,
+**AND** the CV has NO explicit mention,
+**BUT** the candidate has 5+ years relevant experience in the industry,
+**THEN** **MINIMUM SCORE IS 50** (not 0-20).
+
+**WORKED EXAMPLE (MANDATORY):**
+- Criterion: "High Voltage (HT/THT)" marked CRITICAL
+- CV shows: 10 years electrical maintenance in heavy industry (cement, steel)
+- CV does NOT explicitly mention "HT" or "THT"
+
+**REASONING:** Anyone with 10 years in cement/steel electrical maintenance has 100% been exposed to HV equipment.
+
+- ❌ WRONG: Score 20 ("no explicit evidence of HT/THT")
+- ✅ CORRECT: Score **55** ("10 years heavy industry electrical implies HT exposure, inferred competence")
+
+**RULE L SCALE:**
+| Industry Experience | Minimum Score for Implied Critical Skill |
+|---------------------|------------------------------------------|
+| 10+ years | **MIN 55** |
+| 5-9 years | **MIN 45** |
+| 2-4 years | MIN 35 |
+| <2 years | Can score 20-30 |
+
+**🚨 Score 20 is ONLY valid if:**
+- Candidate has <2 years total experience, OR
+- The skill is completely unrelated to their work (e.g., asking a marketer about welding)
+
+### RULE M: Score Distribution Check
+Before submitting, verify your scores are DISTRIBUTED, not clustered:
+- **Max scores over 90:** Should be ≤ 3 criteria (not 6+)
+- **Min scores under 50:** Should be ≤ 2 criteria
+- If most scores are 85-100 → **STOP and recalibrate downward**
+
 ---
 
 ## 🚨 OUTPUT RULES
 
 Return **ONLY valid JSON**. Do not output markdown code blocks or conversational text.
-
 **STABILITY PROTOCOL:** 
 For each criterion, you MUST first perform a mental calculation in the "reasoning" field. 
 1. List the dates found in CV for this skill.
@@ -3415,6 +3871,7 @@ For each criterion, you MUST first perform a mental calculation in the "reasonin
 3. Check for >5 year gap (apply penalty).
 4. State the final effective duration.
 5. Compare to requirement and apply scoring matrix rules.
+6. **Apply Rules F-M** (Score Calibration, Location Default, Language Scale, IT Tools Default, Overqualification, Score Compression, Critical Floor, Distribution).
 
 **JSON Structure:**
 ```json
@@ -3422,10 +3879,53 @@ For each criterion, you MUST first perform a mental calculation in the "reasonin
   "criteria_scores": [
     {{ 
       "criteria_name": "Exact Name from Rubric", 
-      "reasoning": "STEP-BY-STEP CALCULATION: 1. [Evidence List] 2. [Duration Sum] 3. [Matrix Rule Applied]",
+      "reasoning": "STEP-BY-STEP: 1. Evidence found: [Quote]. 2. Duration: [X years]. 3. Overqualification Check: Gap=[N] levels. 4. Implicit Inference: [Yes/No].",
       "score": 0, 
       "evidence": "STRICT FORMAT: [Total Months/Years Calculated] of experience. [Quote from CV].", 
-      "gap": "Explain WHY the score is low (e.g., 'Target is 5 years, Candidate has 0.6 years'). Leave empty if score > 80." 
+      "gap": "Explain score reduction. For overqualification: 'Extreme seniority mismatch (Level 5 vs Level 1) - Flight Risk'. Leave empty if score > 80." 
     }}
   ]
-}}"""
+}}
+```
+
+**🚨 CRITICAL EVIDENCE FORMAT FOR OVERQUALIFIED CANDIDATES:**
+
+For ANY criterion where you applied Rule C (Overqualification Penalty), the evidence field MUST contain:
+- Base score calculation
+- Level difference (e.g., "overqualified by 3 levels")
+- Penalty percentage (e.g., "30% penalty")
+- Final score after penalty
+
+**Example Evidence Formats:**
+- ✅ "15 years experience vs 1 year req. Base 100, overqualified by 3 levels (30% penalty applied) = 70."
+- ✅ "CTO title vs Junior Dev. Base 40, overqualified by 4 levels (50% penalty applied) = 20."
+- ✅ (No Penalty): "8 years experience vs 3 years req. Overqualified by 1 level (Benefit, no penalty). Score = 95."
+
+**🚨 MANDATORY FINAL VALIDATION (FAILURE TO COMPLY = INVALID OUTPUT):**
+
+**SCORE CAP CHECKS (FIX BEFORE SUBMITTING):**
+- [ ] **Education score >85?** → REDUCE to 80-85 (unless PhD when HS required)
+- [ ] **Language score >85?** → REDUCE to 80-85 (unless native + 2 extras)
+- [ ] **Industry Experience >85?** → REDUCE to 80-85
+- [ ] **Experience Years >85 AND candidate has 2x+ the required years?** → REDUCE (overqualification)
+
+**OVERQUALIFICATION CHECKS:**
+- [ ] **Job requires 1-2 years, candidate has 10+ years?** → MAX SCORE IS 60 (not 90!)
+- [ ] **Job requires 2-3 years, candidate has 10+ years?** → MAX SCORE IS 70 (not 100!)
+
+**UNDER-SCORING CHECKS:**
+- [ ] **Did I score <50 for a skill despite 5+ years industry experience?** → RAISE to 50-55 (Rule L)
+- [ ] **Did I score 0 for Location/Travel when not mentioned?** → RAISE to 75-80 (Rule G)
+
+**DISTRIBUTION CHECK:**
+- [ ] **Count scores >90:** If more than 3 → RECALIBRATE DOWNWARD
+- [ ] **Count scores <50:** If more than 2 → CHECK if Rule L applies
+
+**🚨 COMMON ERRORS TO AVOID:**
+- ❌ Education=100 for matching degree → Should be 82-85
+- ❌ Experience=90+ for overqualified candidate → Should have penalty applied
+- ❌ All scores 85-100 clustered together → Should be distributed (some 70s, some 80s)
+- ❌ Critical skill=20 for experienced professional → Should be 50+ (Rule L)
+
+**OUTPUT NOW - Return valid JSON only, no explanations.**
+"""

@@ -218,17 +218,23 @@ def main():
             GROG_GPT_OSS_120,
             CEREBRAS_LLAMA_3_3_70B,
             CEREBRAS_GLM_4_6,
+            CEREBRAS_GLM_4_7,
             CEREBRAS_QWEN_3_235B,
+            DIRECT_CEREBRAS_LLAMA_3_3_70B,
+            DIRECT_CEREBRAS_GLM_4_6,
             MODEL_NAMES
         )
         
         model_options = {
             MODEL_NAMES[GEMINI_3_FLASH_OPENROUTER]: GEMINI_3_FLASH_OPENROUTER,
-            
-            MODEL_NAMES[CEREBRAS_LLAMA_3_3_70B]: CEREBRAS_LLAMA_3_3_70B,
-            MODEL_NAMES[CEREBRAS_GLM_4_6]: CEREBRAS_GLM_4_6,
-            
+            # MODEL_NAMES[CEREBRAS_LLAMA_3_3_70B]: CEREBRAS_LLAMA_3_3_70B,
+            MODEL_NAMES[DIRECT_CEREBRAS_LLAMA_3_3_70B]: DIRECT_CEREBRAS_LLAMA_3_3_70B,
+            MODEL_NAMES[DIRECT_CEREBRAS_GLM_4_6]: DIRECT_CEREBRAS_GLM_4_6,
+            # MODEL_NAMES[CEREBRAS_GLM_4_6]: CEREBRAS_GLM_4_6,
+            # MODEL_NAMES[CEREBRAS_GLM_4_7]: CEREBRAS_GLM_4_7,
             MODEL_NAMES[GROQ_LLAMA_3_3_70B]: GROQ_LLAMA_3_3_70B,
+            MODEL_NAMES[GEMINI_FLASH_LITE_OPENROUTER]: GEMINI_FLASH_LITE_OPENROUTER,
+            MODEL_NAMES[CLAUDE_HAIKU_OPENROUTER]: CLAUDE_HAIKU_OPENROUTER,
             
             MODEL_NAMES[GEMINI_FLASH_OPENROUTER]: GEMINI_FLASH_OPENROUTER,
             MODEL_NAMES[GROQ_KIMI_K2]: GROQ_KIMI_K2,
@@ -238,9 +244,7 @@ def main():
             MODEL_NAMES[GROG_GPT_OSS_120]: GROG_GPT_OSS_120,
             MODEL_NAMES[GROQ_QWEN_3_32B]: GROQ_QWEN_3_32B,
             
-            MODEL_NAMES[GEMINI_FLASH_LITE_OPENROUTER]: GEMINI_FLASH_LITE_OPENROUTER,
-            MODEL_NAMES[CLAUDE_HAIKU_OPENROUTER]: CLAUDE_HAIKU_OPENROUTER,
-            
+           
             MODEL_NAMES[CEREBRAS_QWEN_3_235B]: CEREBRAS_QWEN_3_235B,
             # MODEL_NAMES[MISTRAL_14B_2512_OPENROUTER]: MISTRAL_14B_2512_OPENROUTER,
             # MODEL_NAMES[GROK_4_FAST_OPENROUTER]: GROK_4_FAST_OPENROUTER,
@@ -849,7 +853,20 @@ def main():
         st.markdown("""
         A concise executive summary of the candidate's qualification assessment.
         """)
-        st.info(qualification_summary)
+        
+        # Clean the summary in case the LLM added markdown code blocks
+        clean_summary = qualification_summary.strip()
+        if "```html" in clean_summary:
+            clean_summary = clean_summary.split("```html")[1].split("```")[0].strip()
+        elif "```" in clean_summary:
+            clean_summary = clean_summary.split("```")[1].split("```")[0].strip()
+            
+        # Display with background to keep the "st.info" look but render HTML properly
+        st.markdown(f"""
+        <div style="background-color: #f0f2f6; padding: 1.5rem; border-radius: 0.5rem; color: #1f77b4; border: 1px solid #c8d3e6;">
+            {clean_summary}
+        </div>
+        """, unsafe_allow_html=True)
         
         st.divider()
         

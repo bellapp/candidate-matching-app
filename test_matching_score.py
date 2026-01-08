@@ -316,7 +316,12 @@ import requests
 import hashlib
 import pickle
 from pathlib import Path
-from prompts import RUBRIC_EXTRACTION_PROMPT, CRITERIA_SCORING_PROMPT, QUALIFICATION_GENERATION_PROMPT
+from prompts import (
+    RUBRIC_EXTRACTION_PROMPT, 
+    CRITERIA_SCORING_PROMPT_WITH_REASONING as CRITERIA_SCORING_PROMPT, 
+    QUALIFICATION_GENERATION_PROMPT,
+    QUALIFICATION_SUMMARY
+)
 
 # Load environment variables from .env file
 try:
@@ -432,10 +437,10 @@ class CriterionScore:
 
 # Get API key from environment variable or .env file
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY") # Added for future direct Groq support
-TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")  # For Together AI models
-FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")  # For Fireworks AI models
-CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY")  # For Cerebras AI models
+# GROQ_API_KEY = os.getenv("GROQ_API_KEY") # Removed for OpenRouter-only support
+# TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY") # Removed for OpenRouter-only support
+# FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY") # Removed for OpenRouter-only support
+# CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY") # Removed for OpenRouter-only support
 if not OPENROUTER_API_KEY:
     print("ERROR: OPENROUTER_API_KEY not found!")
     print("Please set it in one of these ways:")
@@ -446,10 +451,12 @@ if not OPENROUTER_API_KEY:
 
 # OpenRouter configuration
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
-GROQ_BASE_URL = "https://api.groq.com/openai/v1/chat/completions"
-TOGETHER_BASE_URL = "https://api.together.xyz/v1/chat/completions"
-FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1/chat/completions"
+# GROQ_BASE_URL = "https://api.groq.com/openai/v1/chat/completions"
+# TOGETHER_BASE_URL = "https://api.together.xyz/v1/chat/completions" # Removed for OpenRouter-only support
+# FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1/chat/completions"
+# CEREBRAS_BASE_URL = "https://api.cerebras.ai/v1/chat/completions"
 CEREBRAS_BASE_URL = "https://api.cerebras.ai/v1/chat/completions"
+CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY")
 
 # Available Models
 CLAUDE_HAIKU_OPENROUTER = "anthropic/claude-haiku-4.5"
@@ -459,23 +466,29 @@ GPT_OSS_120B_OPENROUTER = "openai/gpt-oss-120b:exacto"
 MISTRAL_14B_2512_OPENROUTER = "mistralai/ministral-14b-2512"
 GROK_4_FAST_OPENROUTER = "x-ai/grok-4-fast"
 GEMINI_3_FLASH_OPENROUTER = "google/gemini-3-flash-preview"
-GROQ_KIMI_K2="moonshotai/kimi-k2-instruct"
-GROQ_LLAMA_4_MAVERICK_INSTRUCT="meta-llama/llama-4-maverick-17b-128e-instruct"
-GROQ_LLAMA_4_SCOUT_INSTRUCT = "meta-llama/llama-4-scout-17b-16e-instruct"
-GROQ_QWEN_3_32B = "qwen/qwen3-32b"
-GROG_GPT_OSS_120=  "openai/gpt-oss-120b"  
+GROQ_KIMI_K2="groq::moonshotai/kimi-k2-instruct"
+GROQ_LLAMA_4_MAVERICK_INSTRUCT="groq::meta-llama/llama-4-maverick-17b-128e-instruct"
+GROQ_LLAMA_4_SCOUT_INSTRUCT = "groq::meta-llama/llama-4-scout-17b-16e-instruct"
+GROQ_QWEN_3_32B = "groq::qwen/qwen3-32b"
+GROG_GPT_OSS_120=  "groq::openai/gpt-oss-120b"  
 
 # Direct Groq Models
-GROQ_LLAMA_3_3_70B = "llama-3.3-70b-versatile"
-# GROQ_LLAMA_3_1_8B = "llama-3.1-8b-instant"
-# GROQ_MIXTRAL_8X7B = "mixtral-8x7b-32768"
-# GROQ_LLAMA_4 = "meta-llama/llama-4-405b" # Assuming this exists or is wanted
-TOGETHER_GLM_4_5_AIR_FP8 = "zai-org/GLM-4.5-Air-FP8"
-FIREWORKS_GLM_4_7 = "accounts/fireworks/models/glm-4p7"
-FIREWORKS_MINIMAX_M2P1 = "accounts/fireworks/models/minimax-m2p1"
-CEREBRAS_GLM_4_6 = "zai-glm-4.6"
-CEREBRAS_QWEN_3_235B = "qwen-3-235b-a22b-instruct-2507"
-CEREBRAS_LLAMA_3_3_70B = "llama-3.3-70b"
+GROQ_LLAMA_3_3_70B = "groq::meta-llama/llama-3.3-70b-instruct"
+# GROQ_LLAMA_3_1_8B = "groq:meta-llama/llama-3.1-8b-instruct"
+# GROQ_MIXTRAL_8X7B = "groq:meta-llama/mixtral-8x7b-instruct"
+# GROQ_LLAMA_4 = "groq:meta-llama/llama-4-405b" # Assuming this exists or is wanted
+TOGETHER_GLM_4_5_AIR_FP8 = "together::zai-org/GLM-4.5-Air-FP8"
+FIREWORKS_GLM_4_7 = "fireworks::zai-org/glm-4.7"
+FIREWORKS_MINIMAX_M2P1 = "fireworks::minimax/minimax-m2p1"
+CEREBRAS_GLM_4_6 = "cerebras::z-ai/glm-4.6"
+CEREBRAS_GLM_4_7 = "cerebras::z-ai/glm-4.7"
+CEREBRAS_QWEN_3_235B = "cerebras::qwen/qwen-3-235b-instruct"
+CEREBRAS_LLAMA_3_3_70B = "cerebras::meta-llama/llama-3.3-70b-instruct"
+
+# Direct Cerebras Models
+DIRECT_CEREBRAS_GLM_4_6 = "direct-cerebras::zai-glm-4.6"
+DIRECT_CEREBRAS_LLAMA_3_3_70B = "direct-cerebras::llama-3.3-70b"
+
 # Default model (can be overridden)
 OPENROUTER_MODEL = CLAUDE_HAIKU_OPENROUTER
 
@@ -488,27 +501,30 @@ MODEL_NAMES = {
     MISTRAL_14B_2512_OPENROUTER: "Mistral 14B 2512",
     GROK_4_FAST_OPENROUTER: "Grok 4.1 Fast",
     GPT_OSS_120B_OPENROUTER: "GPT OSS 120B (Exacto)",
-    GROQ_KIMI_K2: "Kimi K2 Instruct (Direct Groq)",
-    GROQ_LLAMA_4_MAVERICK_INSTRUCT: "Llama 4 Maverick (Direct Groq)",
-    GROQ_LLAMA_4_SCOUT_INSTRUCT: "Llama 4 Scout (Direct Groq)",
-    # GROQ_LLAMA_4: "Llama 4 405B (Direct Groq)",
-    GROG_GPT_OSS_120: "GPT OSS 120B (Direct Groq)",
-    GROQ_QWEN_3_32B: "Qwen 3 32B (Direct Groq)",
-    GROQ_LLAMA_3_3_70B: "Llama 3.3 70B (Direct Groq - FAST)",
-    # GROQ_LLAMA_3_1_8B: "Llama 3.1 8B (Direct Groq - INSTANT)",
-    # GROQ_MIXTRAL_8X7B: "Mixtral 8x7b (Direct Groq)",
-    TOGETHER_GLM_4_5_AIR_FP8: "GLM-4.5 Air FP8 (Together AI)",
-    FIREWORKS_GLM_4_7: "GLM 4.7 (Fireworks AI)",
-    FIREWORKS_MINIMAX_M2P1: "Minimax M2P1 (Fireworks AI)",
-    CEREBRAS_GLM_4_6: "GLM 4.6 (Cerebras AI)",
-    CEREBRAS_QWEN_3_235B: "Qwen 3 235B (Cerebras AI)",
-    CEREBRAS_LLAMA_3_3_70B: "Llama 3.3 70B (Cerebras AI)",
+    GROQ_KIMI_K2: "Kimi K2 Instruct (OpenRouter - Groq)",
+    GROQ_LLAMA_4_MAVERICK_INSTRUCT: "Llama 4 Maverick (OpenRouter - Groq)",
+    GROQ_LLAMA_4_SCOUT_INSTRUCT: "Llama 4 Scout (OpenRouter - Groq)",
+    # GROQ_LLAMA_4: "Llama 4 405B (OpenRouter - Groq)",
+    GROG_GPT_OSS_120: "GPT OSS 120B (OpenRouter - Groq)",
+    GROQ_QWEN_3_32B: "Qwen 3 32B (OpenRouter - Groq)",
+    GROQ_LLAMA_3_3_70B: "Llama 3.3 70B (OpenRouter - Groq)",
+    # GROQ_LLAMA_3_1_8B: "Llama 3.1 8B (OpenRouter - Groq)",
+    # GROQ_MIXTRAL_8X7B: "Mixtral 8x7b (OpenRouter - Groq)",
+    TOGETHER_GLM_4_5_AIR_FP8: "GLM-4.5 Air FP8 (OpenRouter - Together)",
+    FIREWORKS_GLM_4_7: "GLM 4.7 (OpenRouter - Fireworks)",
+    FIREWORKS_MINIMAX_M2P1: "Minimax M2P1 (OpenRouter - Fireworks)",
+    CEREBRAS_GLM_4_6: "GLM 4.6 (OpenRouter - Cerebras)",
+    CEREBRAS_GLM_4_7: "GLM 4.7 (OpenRouter - Cerebras)",
+    CEREBRAS_QWEN_3_235B: "Qwen 3 235B (OpenRouter - Cerebras)",
+    CEREBRAS_LLAMA_3_3_70B: "Llama 3.3 70B (OpenRouter - Cerebras)",
+    DIRECT_CEREBRAS_GLM_4_6: "GLM 4.6 (Direct Cerebras)",
+    DIRECT_CEREBRAS_LLAMA_3_3_70B: "Llama 3.3 70B (Direct Cerebras)",
 }
 
 # Cache configuration
 CACHE_DIR = Path(__file__).parent / ".rubric_cache"
 CACHE_DIR.mkdir(exist_ok=True)
-ENABLE_CACHE = True  # Set to False to disable caching
+ENABLE_CACHE = False  # Set to False to disable caching
 
 # ============================================================================
 # PROMPTS (copied from actual project)
@@ -637,7 +653,11 @@ def calculate_matching_score(rubric: EvaluationRubric, criteria_scores: List[Cri
         final_score = round(weighted_sum)
     else:
         # Fallback to simple average
-        final_score = round(sum(c.score for c in criteria_scores) / len(criteria_scores))
+        if len(criteria_scores) > 0:
+            final_score = round(sum(c.score for c in criteria_scores) / len(criteria_scores))
+        else:
+            final_score = 0
+            print("WARNING: No criteria scores to calculate average. Defaulting to 0.")
     
     return {
         "final_score": final_score,
@@ -793,8 +813,13 @@ def call_openrouter(
     # Use the provided model or fall back to default
     selected_model = model if model else OPENROUTER_MODEL
     
+    # Strip internal provider prefix if present (e.g. "groq::meta-llama/..." -> "meta-llama/...")
+    actual_model_id = selected_model
+    if "::" in selected_model:
+        actual_model_id = selected_model.split("::")[-1]
+    
     # Determine if this is a direct Groq or Together call
-    is_direct_groq = selected_model in [
+    is_direct_groq = selected_model.startswith("groq::") or selected_model in [
         GROQ_KIMI_K2, 
         GROQ_LLAMA_4_MAVERICK_INSTRUCT, 
         GROQ_LLAMA_4_SCOUT_INSTRUCT,
@@ -805,37 +830,51 @@ def call_openrouter(
         # GROQ_LLAMA_3_1_8B, 
         # GROQ_MIXTRAL_8X7B
     ]
-    is_together = selected_model in [TOGETHER_GLM_4_5_AIR_FP8]
-    is_fireworks = selected_model in [FIREWORKS_GLM_4_7, FIREWORKS_MINIMAX_M2P1]
-    is_cerebras = selected_model in [CEREBRAS_GLM_4_6, CEREBRAS_QWEN_3_235B, CEREBRAS_LLAMA_3_3_70B]
+    is_together = selected_model.startswith("together::") or selected_model in [TOGETHER_GLM_4_5_AIR_FP8]
+    is_fireworks = selected_model.startswith("fireworks::") or selected_model in [FIREWORKS_GLM_4_7, FIREWORKS_MINIMAX_M2P1]
+    is_cerebras = selected_model.startswith("cerebras::") or selected_model in [CEREBRAS_GLM_4_7, CEREBRAS_GLM_4_6, CEREBRAS_QWEN_3_235B, CEREBRAS_LLAMA_3_3_70B]
+    is_gemini = selected_model in [GEMINI_3_FLASH_OPENROUTER, GEMINI_FLASH_OPENROUTER, GEMINI_FLASH_LITE_OPENROUTER]
+    is_direct_cerebras = selected_model.startswith("direct-cerebras::") or selected_model in [DIRECT_CEREBRAS_GLM_4_6, DIRECT_CEREBRAS_LLAMA_3_3_70B]
     
     api_url = OPENROUTER_BASE_URL
     api_key = OPENROUTER_API_KEY
     
-    if is_direct_groq:
-        api_url = GROQ_BASE_URL
-        api_key = GROQ_API_KEY
-        if not api_key:
-            raise ValueError("GROQ_API_KEY not found in environment variables!")
-        print(f"\n[LLM CALL via Direct Groq] {generation_name}...")
-    elif is_together:
-        api_url = TOGETHER_BASE_URL
-        api_key = TOGETHER_API_KEY
-        if not api_key:
-            raise ValueError("TOGETHER_API_KEY not found in environment variables!")
-        print(f"\n[LLM CALL via Together] {generation_name}...")
-    elif is_fireworks:
-        api_url = FIREWORKS_BASE_URL
-        api_key = FIREWORKS_API_KEY
-        if not api_key:
-            raise ValueError("FIREWORKS_API_KEY not found in environment variables!")
-        print(f"\n[LLM CALL via Fireworks] {generation_name}...")
-    elif is_cerebras:
+    if is_direct_cerebras:
         api_url = CEREBRAS_BASE_URL
         api_key = CEREBRAS_API_KEY
         if not api_key:
             raise ValueError("CEREBRAS_API_KEY not found in environment variables!")
-        print(f"\n[LLM CALL via Cerebras] {generation_name}...")
+        print(f"\n[LLM CALL via Direct Cerebras API] {generation_name}...")
+    elif is_direct_groq:
+        api_url = OPENROUTER_BASE_URL
+        api_key = OPENROUTER_API_KEY
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY not found in environment variables!")
+        print(f"\n[LLM CALL via OpenRouter (Provider: Groq)] {generation_name}...")
+    elif is_together:
+        api_url = OPENROUTER_BASE_URL
+        api_key = OPENROUTER_API_KEY
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY not found in environment variables!")
+        print(f"\n[LLM CALL via OpenRouter (Provider: Together)] {generation_name}...")
+    elif is_fireworks:
+        api_url = OPENROUTER_BASE_URL
+        api_key = OPENROUTER_API_KEY
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY not found in environment variables!")
+        print(f"\n[LLM CALL via OpenRouter (Provider: Fireworks)] {generation_name}...")
+    elif is_cerebras:
+        api_url = OPENROUTER_BASE_URL
+        api_key = OPENROUTER_API_KEY
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY not found in environment variables!")
+        print(f"\n[LLM CALL via OpenRouter (Provider: Cerebras)] {generation_name}...")
+    elif is_gemini:
+        api_url = OPENROUTER_BASE_URL
+        api_key = OPENROUTER_API_KEY
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY not found in environment variables!")
+        print(f"\n[LLM CALL via OpenRouter (Prioritizing Google AI Studio)] {generation_name}...")
     else:
         api_url = OPENROUTER_BASE_URL
         api_key = OPENROUTER_API_KEY
@@ -846,14 +885,12 @@ def call_openrouter(
         "Content-Type": "application/json"
     }
     
-    if not is_direct_groq and not is_together and not is_fireworks and not is_cerebras:
-        headers["HTTP-Referer"] = "https://github.com/wiggli-parser"
-        headers["X-Title"] = "Wiggli Parser Test"
+    headers["HTTP-Referer"] = "https://github.com/wiggli-parser"
+    headers["X-Title"] = "Wiggli Parser Test"
     
     print(f"Model: {selected_model}")
     
-    # If Together, Fireworks or Cerebras, bump max_tokens to reduce truncation risk
-    # Note: Fireworks has a 4096 limit for non-streaming, so we cap it there
+    # If Together AI, bump max_tokens to reduce truncation risk
     if is_together and max_tokens < 6000:
         max_tokens = 6000
     elif is_fireworks and max_tokens > 4096:
@@ -862,21 +899,48 @@ def call_openrouter(
         max_tokens = 6000
 
     data = {
-        "model": selected_model,
+        "model": actual_model_id,
         "messages": messages,
         # --- CONSISTENCY PARAMETERS ---
         "temperature": 0,      # Removes randomness
         "top_p": 1,           # Restricts sampling to top probability
         "seed": 42            # Forces deterministic output (if supported by model)
     }
+
+    # If this is a Groq, Together, Fireworks or Cerebras model being called via OpenRouter, specify the provider
+    if is_direct_groq:
+        data["provider"] = {
+            "order": ["Groq", "DeepInfra", "Novita"],
+            "allow_fallbacks": True
+        }
+    elif is_together:
+        data["provider"] = {
+            "order": ["Together", "DeepInfra"],
+            "allow_fallbacks": True
+        }
+    elif is_fireworks:
+        data["provider"] = {
+            "order": ["Fireworks", "DeepInfra"],
+            "allow_fallbacks": True
+        }
+    elif is_cerebras:
+        data["provider"] = {
+            "order": ["Cerebras"],
+            "allow_fallbacks": True
+        }
+    elif is_gemini:
+        data["provider"] = {
+            "order": ["Vertex AI", "Google AI Studio"],
+            "sort": "latency"
+        }
     
-    if is_cerebras:
+    if is_cerebras or is_direct_cerebras:
         data["max_completion_tokens"] = max_tokens
     else:
         data["max_tokens"] = max_tokens
     
     # Enable JSON mode ONLY for rubric extraction and criteria scoring
-    if is_fireworks or is_together or is_direct_groq or is_cerebras:
+    if is_fireworks or is_together or is_direct_groq or is_cerebras or is_direct_cerebras:
         if generation_name in ["rubric_extraction_llm", "criteria_scoring_llm"]:
             data["response_format"] = {"type": "json_object"}
     
@@ -926,7 +990,10 @@ def call_openrouter(
     # Implement retry logic for 429
     max_retries = 10
     base_delay = 5 # seconds
-    provider_name = "Fireworks" if is_fireworks else "Together" if is_together else "Groq" if is_direct_groq else "Cerebras" if is_cerebras else "OpenRouter"
+    provider_name = "Fireworks" if is_fireworks else "Together" if is_together else "Groq" if is_direct_groq else "Cerebras" if (is_cerebras or is_direct_cerebras) else "OpenRouter"
+    
+    # Track OpenRouter actual provider if possible
+    actual_provider = provider_name if provider_name != "OpenRouter" else "OpenRouter"
 
     for attempt in range(max_retries):
         # Track actual LLM API call time (excluding Langfuse overhead)
@@ -973,7 +1040,7 @@ def call_openrouter(
             
             # Check for API-level errors in response
             if "error" in result:
-                error_msg = result.get("error", {})
+                error_msg = result.get("error") or {}
                 if isinstance(error_msg, dict):
                     error_detail = error_msg.get("message", str(error_msg))
                 else:
@@ -993,8 +1060,26 @@ def call_openrouter(
                 raise ValueError(f"{provider_name} API error: {error_detail}")
             
             # Extract content
-            choice = result["choices"][0]
-            content = choice["message"]["content"]
+            choices = result.get("choices")
+            if not choices:
+                error_msg = f"No choices in API response. Full response: {json.dumps(result, indent=2)[:500]}"
+                if generation:
+                    generation.update(status_message=error_msg, level="ERROR")
+                    generation.end()
+                raise ValueError(error_msg)
+                
+            choice = choices[0]
+            message = choice.get("message") or {}
+            content = message.get("content")
+            
+            # If content is empty but reasoning is present (some models like GLM-4.7 do this)
+            if not content and "reasoning" in message:
+                content = message["reasoning"]
+            
+            # If still no content, check if it's in the choice itself (some older formats)
+            if not content:
+                content = choice.get("text")
+                
             finish_reason = choice.get("finish_reason")
             
             if finish_reason == "length":
@@ -1012,7 +1097,7 @@ def call_openrouter(
             if generation:
                 try:
                     # Extract token usage
-                    usage = result.get("usage", {})
+                    usage = result.get("usage") or {}
                     # Update output and usage first
                     generation.update(
                         output=content,
@@ -1268,7 +1353,7 @@ def extract_rubric_with_llm(
         
         # Convert to EvaluationRubric
         criteria = []
-        raw_criteria = rubric_data.get("criteria", [])
+        raw_criteria = rubric_data.get("criteria") or []
         if not isinstance(raw_criteria, list):
             raw_criteria = []
             
@@ -1468,232 +1553,232 @@ DO NOT include introductory text, concluding text, or markdown formatting outsid
 Return ONLY valid JSON with exactly the key "criteria_scores" containing the array of {len(rubric.criteria)} results."""
         print("✓ Used fallback hardcoded prompt")
     
-    try:
-        # Call OpenRouter (returns content and LLM duration)
-        response_text, llm_duration = call_openrouter(
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt_content
-                }
-            ],
-            max_tokens=6000,  # Increased to avoid truncation with reasoning
-            generation_name="criteria_scoring_llm",
-            langfuse_parent=langfuse_parent,
-            langfuse_prompt=langfuse_prompt,
-            session_id=session_id,
-            model=model
-        )
-        
-        print(f"✓ Criteria scoring LLM call: {llm_duration:.2f}s")
-        print(f"LLM Response (first 500 chars): {response_text}...")
-        print(f"LLM Response length: {len(response_text)} chars")
-        
-        # Clean and extract JSON from response (handles <think> blocks and markdown)
-        response_text_original = response_text
-        response_text = clean_llm_json_response(response_text)
-        
-        # Validate we have something to parse
-        if not response_text or response_text == "{}":
-            print(f"⚠ Warning: LLM returned empty JSON for criteria scoring. Original response: {response_text_original[:500]}")
-            return []
-        
-        # Parse JSON with better error message
+    # Retry mechanism for JSON parsing failures
+    max_retries = 3
+    import time
+    
+    for attempt in range(max_retries):
         try:
-            scores_data = json.loads(response_text)
-            if not isinstance(scores_data, dict):
-                raise ValueError(f"Expected dict from JSON, got {type(scores_data)}")
-            
-            # If criteria_scores is missing, check for fallbacks
-            if "criteria_scores" not in scores_data:
-                if "criteria" in scores_data:
-                    scores_data["criteria_scores"] = scores_data["criteria"]
-                elif "scores" in scores_data:
-                    scores_data["criteria_scores"] = scores_data["scores"]
-                else:
-                    print(f"⚠ Warning: Missing 'criteria_scores' in response keys {list(scores_data.keys())}. Returning empty scores.")
-                    return []
-        except json.JSONDecodeError as e:
-            error_msg = f"JSON parsing failed at position {e.pos}: {e.msg}\n"
-            error_msg += f"Cleaned response text (first 1000 chars):\n{response_text[:1000]}\n"
-            error_msg += f"Original response (first 500 chars):\n{response_text_original[:500]}"
-            print(f"ERROR: {error_msg}")
-            raise ValueError(error_msg) from e
-        
-        # Validate response structure
-        if "criteria_scores" not in scores_data:
-            raise ValueError(f"Missing 'criteria_scores' key in response. Keys found: {list(scores_data.keys())}")
-        
-        # Debug: Print first score to see structure
-        if len(scores_data["criteria_scores"]) > 0:
-            first_score = scores_data["criteria_scores"][0]
-            print(f"DEBUG - First score structure: {json.dumps(first_score, indent=2)}")
-            print(f"DEBUG - Keys in first score: {list(first_score.keys())}")
-        
-        # Debug: Print all returned criteria names
-        returned_criteria_names = [s.get("criteria_name", "MISSING") for s in scores_data["criteria_scores"]]
-        expected_criteria_names = [c.name for c in rubric.criteria]
-        print(f"\n{'='*80}")
-        print(f"CRITERIA VALIDATION CHECK")
-        print(f"{'='*80}")
-        print(f"Expected criteria ({len(expected_criteria_names)}):")
-        for i, name in enumerate(expected_criteria_names, 1):
-            print(f"  {i}. {name}")
-        print(f"\nReturned criteria ({len(returned_criteria_names)}):")
-        for i, name in enumerate(returned_criteria_names, 1):
-            match_indicator = "✓" if name in expected_criteria_names else "❌"
-            print(f"  {i}. {match_indicator} {name}")
-        print(f"{'='*80}\n")
-        
-        # Check for mismatches
-        mismatches = []
-        for returned_name in returned_criteria_names:
-            if returned_name not in expected_criteria_names:
-                # Try to find partial matches
-                found_match = False
-                for expected_name in expected_criteria_names:
-                    if expected_name.lower() in returned_name.lower() or returned_name.lower() in expected_name.lower():
-                        print(f"⚠ Partial match found: '{returned_name}' might match '{expected_name}'")
-                        found_match = True
-                        break
-                if not found_match:
-                    mismatches.append(returned_name)
-        
-        if mismatches:
-            print(f"⚠ WARNING: {len(mismatches)} criteria returned that don't match the rubric:")
-            for mismatch in mismatches:
-                print(f"   - '{mismatch}' (not in rubric)")
-            print(f"   Expected: {expected_criteria_names}")
-            print(f"   This suggests the LLM may not have received the rubric properly or is generating its own criteria.")
-        
-        # Create a mapping from criterion names (with or without weight) to actual criterion names
-        criterion_name_map = {}
-        for criterion in rubric.criteria:
-            # Map the exact name
-            criterion_name_map[criterion.name] = criterion.name
-            # Map name with weight format (as shown in prompt)
-            criterion_name_map[f"{criterion.name} (Weight: {criterion.weight:.1f}%)"] = criterion.name
-            # Map variations (case-insensitive, partial matches)
-            criterion_name_map[criterion.name.lower()] = criterion.name
-            # Try to match common variations
-            if "frontend" in criterion.name.lower() or "front-end" in criterion.name.lower():
-                criterion_name_map["Hard Skills - Front-end Technologies"] = criterion.name
-                criterion_name_map["Front-end Technologies"] = criterion.name
-            if "react" in criterion.name.lower():
-                criterion_name_map["Hard Skills - React.js"] = criterion.name
-            if "backend" in criterion.name.lower() or "back-end" in criterion.name.lower():
-                # This might not be in rubric, but we'll try to match
-                pass
-        
-        # Convert to CriterionScore list - ONLY for criteria that match the rubric
-        scores = []
-        matched_criteria = set()  # Track which rubric criteria have been matched
-        
-        for s in scores_data["criteria_scores"]:
-            # Ensure all required fields exist
-            if "criteria_name" not in s:
-                print(f"WARNING: Missing 'criteria_name' in score: {s}")
-                continue
-            if "score" not in s:
-                print(f"WARNING: Missing 'score' in score: {s}")
-                continue
-            
-            # Normalize criteria name (remove weight if present)
-            raw_criteria_name = s["criteria_name"]
-            normalized_name = criterion_name_map.get(raw_criteria_name, raw_criteria_name)
-            
-            # If still not found, try to extract just the name part (before " (Weight:")
-            if normalized_name == raw_criteria_name and " (Weight:" in raw_criteria_name:
-                normalized_name = raw_criteria_name.split(" (Weight:")[0].strip()
-                # Try to find matching criterion by name
-                for criterion in rubric.criteria:
-                    if criterion.name == normalized_name:
-                        criterion_name_map[raw_criteria_name] = normalized_name
-                        break
-            
-            # Try fuzzy matching if exact match not found
-            if normalized_name not in expected_criteria_names:
-                # Try to find best match
-                best_match = None
-                best_similarity = 0
-                for criterion in rubric.criteria:
-                    # Simple similarity check
-                    if normalized_name.lower() in criterion.name.lower() or criterion.name.lower() in normalized_name.lower():
-                        similarity = min(len(normalized_name), len(criterion.name)) / max(len(normalized_name), len(criterion.name))
-                        if similarity > best_similarity:
-                            best_similarity = similarity
-                            best_match = criterion.name
-                
-                if best_match and best_similarity > 0.5:
-                    print(f"⚠ Fuzzy matched: '{raw_criteria_name}' -> '{best_match}' (similarity: {best_similarity:.2f})")
-                    normalized_name = best_match
-                else:
-                    print(f"❌ ERROR: Criterion '{raw_criteria_name}' does not match any rubric criterion!")
-                    print(f"   Expected one of: {expected_criteria_names}")
-                    print(f"   Skipping this score to prevent incorrect matching.")
-                    continue
-            
-            # Debug: Log name normalization
-            if raw_criteria_name != normalized_name:
-                print(f"DEBUG: Normalized criteria name: '{raw_criteria_name}' -> '{normalized_name}'")
-            
-            # Check if we've already scored this criterion
-            if normalized_name in matched_criteria:
-                print(f"⚠ WARNING: Duplicate score for criterion '{normalized_name}'. Keeping first occurrence.")
-                continue
-            
-            matched_criteria.add(normalized_name)
-            
-            score_obj = CriterionScore(
-                criteria_name=normalized_name,  # Use normalized name
-                score=float(s["score"]),
-                reasoning=s.get("reasoning", "") or "", # Added for stability
-                evidence=s.get("evidence", "") or "",  # Ensure it's a string, not None
-                gap=s.get("gap", "") or ""  # Ensure it's a string, not None
+            # Call OpenRouter (returns content and LLM duration)
+            response_text, llm_duration = call_openrouter(
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt_content
+                    }
+                ],
+                max_tokens=6000,  # Increased to avoid truncation with reasoning
+                generation_name="criteria_scoring_llm",
+                langfuse_parent=langfuse_parent,
+                langfuse_prompt=langfuse_prompt,
+                session_id=session_id,
+                model=model
             )
             
-            # Debug: Print if evidence/gap are empty
-            if not score_obj.evidence and not score_obj.gap:
-                print(f"WARNING: No evidence or gap for criterion: {score_obj.criteria_name}")
+            print(f"✓ Criteria scoring LLM call (Attempt {attempt+1}/{max_retries}): {llm_duration:.2f}s")
+            # print(f"LLM Response (first 500 chars): {response_text[:500]}...")
+            print(f"LLM Response length: {len(response_text)} chars")
             
-            scores.append(score_obj)
+            # Clean and extract JSON from response (handles <think> blocks and markdown)
+            response_text_original = response_text
+            response_text = clean_llm_json_response(response_text)
+            
+            # Validate we have something to parse
+            if not response_text or response_text == "{}":
+                print(f"⚠ Warning: LLM returned empty JSON for criteria scoring. Original response: {response_text_original[:500]}")
+                if attempt < max_retries - 1:
+                    print("   Retrying...")
+                    time.sleep(1)
+                    continue
+                return []
+            
+            # Parse JSON with better error message
+            try:
+                scores_data = json.loads(response_text)
+                if not isinstance(scores_data, dict):
+                    raise ValueError(f"Expected dict from JSON, got {type(scores_data)}")
+                
+                # If criteria_scores is missing, check for fallbacks
+                if "criteria_scores" not in scores_data:
+                    if "criteria" in scores_data:
+                        scores_data["criteria_scores"] = scores_data["criteria"]
+                    elif "scores" in scores_data:
+                        scores_data["criteria_scores"] = scores_data["scores"]
+                    else:
+                        print(f"⚠ Warning: Missing 'criteria_scores' in response keys {list(scores_data.keys())}. Returning empty scores.")
+                        if attempt < max_retries - 1:
+                            print("   Retrying...")
+                            time.sleep(1)
+                            continue
+                        return []
+            except json.JSONDecodeError as e:
+                error_msg = f"JSON parsing failed at position {e.pos}: {e.msg}\n"
+                error_msg += f"Cleaned response text (first 1000 chars):\n{response_text[:1000]}\n"
+                error_msg += f"Original response (first 500 chars):\n{response_text_original[:500]}"
+                print(f"ERROR: {error_msg}")
+                if attempt < max_retries - 1:
+                    print("   Retrying...")
+                    time.sleep(1)
+                    continue
+                raise ValueError(error_msg) from e
+            
+            # If we got here, we successfully parsed the JSON
+            break
+            
+        except Exception as e:
+            print(f"ERROR in LLM call (Attempt {attempt+1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                print("   Retrying...")
+                time.sleep(1)
+                continue
+            # LANGFUSE: Error captured automatically by @observe
+            raise
+
+    # Debug: Print all returned criteria names
+    returned_criteria_names = [s.get("criteria_name", "MISSING") for s in (scores_data.get("criteria_scores") or [])]
+    expected_criteria_names = [c.name for c in rubric.criteria]
+    print(f"\n{'='*80}")
+    print(f"CRITERIA VALIDATION CHECK")
+    print(f"{'='*80}")
+    print(f"Expected criteria ({len(expected_criteria_names)}):")
+    for i, name in enumerate(expected_criteria_names, 1):
+        print(f"  {i}. {name}")
+    print(f"\nReturned criteria ({len(returned_criteria_names)}):")
+    for i, name in enumerate(returned_criteria_names, 1):
+        match_indicator = "✓" if name in expected_criteria_names else "❌"
+        print(f"  {i}. {match_indicator} {name}")
+    print(f"{'='*80}\n")
+    
+    # Check for mismatches
+    mismatches = []
+    for returned_name in returned_criteria_names:
+        if returned_name not in expected_criteria_names:
+            # Try to find partial matches
+            found_match = False
+            for expected_name in expected_criteria_names:
+                if expected_name.lower() in returned_name.lower() or returned_name.lower() in expected_name.lower():
+                    print(f"⚠ Partial match found: '{returned_name}' might match '{expected_name}'")
+                    found_match = True
+                    break
+            if not found_match:
+                mismatches.append(returned_name)
+    
+    if mismatches:
+        print(f"⚠ WARNING: {len(mismatches)} criteria returned that don't match the rubric:")
+        for mismatch in mismatches:
+            print(f"   - '{mismatch}' (not in rubric)")
+        print(f"   Expected: {expected_criteria_names}")
+        print(f"   This suggests the LLM may not have received the rubric properly or is generating its own criteria.")
+    
+    # Create a mapping from criterion names (with or without weight) to actual criterion names
+    criterion_name_map = {}
+    for criterion in rubric.criteria:
+        # Map the exact name
+        criterion_name_map[criterion.name] = criterion.name
+        # Map name with weight format (as shown in prompt)
+        criterion_name_map[f"{criterion.name} (Weight: {criterion.weight:.1f}%)"] = criterion.name
+        # Map variations (case-insensitive, partial matches)
+        criterion_name_map[criterion.name.lower()] = criterion.name
+        # Try to match common variations
+        if "frontend" in criterion.name.lower() or "front-end" in criterion.name.lower():
+            criterion_name_map["Hard Skills - Front-end Technologies"] = criterion.name
+            criterion_name_map["Front-end Technologies"] = criterion.name
+        if "react" in criterion.name.lower():
+            criterion_name_map["Hard Skills - React.js"] = criterion.name
+        if "backend" in criterion.name.lower() or "back-end" in criterion.name.lower():
+            # This might not be in rubric, but we'll try to match
+            pass
+    
+    # Convert to CriterionScore list - ONLY for criteria that match the rubric
+    scores = []
+    matched_criteria = set()  # Track which rubric criteria have been matched
+    
+    for s in (scores_data.get("criteria_scores") or []):
+        # Ensure all required fields exist
+        if "criteria_name" not in s:
+            print(f"WARNING: Missing 'criteria_name' in score: {s}")
+            continue
+        if "score" not in s:
+            print(f"WARNING: Missing 'score' in score: {s}")
+            continue
         
-        # Check if all rubric criteria were scored
-        missing_criteria = set(expected_criteria_names) - matched_criteria
-        if missing_criteria:
-            print(f"⚠ WARNING: {len(missing_criteria)} rubric criteria were not scored: {missing_criteria}")
-            print(f"   This may cause incorrect final score calculation.")
-            # Add placeholder scores for missing criteria (score 0 with gap explanation)
-            for missing_name in missing_criteria:
-                # Find the criterion object
-                missing_criterion = next((c for c in rubric.criteria if c.name == missing_name), None)
-                if missing_criterion:
-                    placeholder_score = CriterionScore(
-                        criteria_name=missing_name,
-                        score=0.0,
-                        reasoning="Not scored by LLM",
-                        evidence="Criterion not scored by LLM - may indicate prompt issue",
-                        gap=f"Missing score for '{missing_name}' - LLM did not return this criterion"
-                    )
-                    scores.append(placeholder_score)
-                    print(f"   Added placeholder score (0) for '{missing_name}'")
+        # Normalize criteria name (remove weight if present)
+        raw_criteria_name = s["criteria_name"]
+        normalized_name = criterion_name_map.get(raw_criteria_name, raw_criteria_name)
         
-        print(f"✓ Scored {len(scores)} criteria via LLM")
+        # If still not found, try to extract just the name part (before " (Weight:")
+        if normalized_name == raw_criteria_name and " (Weight:" in raw_criteria_name:
+            normalized_name = raw_criteria_name.split(" (Weight:")[0].strip()
+            # Try to find matching criterion by name
+            for criterion in rubric.criteria:
+                if criterion.name == normalized_name:
+                    criterion_name_map[raw_criteria_name] = normalized_name
+                    break
         
-        # Debug: Print summary of evidence/gap
-        evidence_count = sum(1 for s in scores if s.evidence)
-        gap_count = sum(1 for s in scores if s.gap)
-        print(f"DEBUG - Scores with evidence: {evidence_count}/{len(scores)}")
-        print(f"DEBUG - Scores with gap: {gap_count}/{len(scores)}")
+        # Try fuzzy matching if exact match not found
+        if normalized_name not in expected_criteria_names:
+            # Try to find best match
+            best_match = None
+            best_similarity = 0
+            for criterion in rubric.criteria:
+                # Simple similarity check
+                if normalized_name.lower() in criterion.name.lower() or criterion.name.lower() in normalized_name.lower():
+                    similarity = min(len(normalized_name), len(criterion.name)) / max(len(normalized_name), len(criterion.name))
+                    if similarity > best_similarity:
+                        best_similarity = similarity
+                        best_match = criterion.name
+            
+            if best_match and best_similarity > 0.5:
+                print(f"⚠ Fuzzy matched: '{raw_criteria_name}' -> '{best_match}' (similarity: {best_similarity:.2f})")
+                normalized_name = best_match
+            else:
+                print(f"❌ ERROR: Criterion '{raw_criteria_name}' does not match any rubric criterion!")
+                print(f"   Expected one of: {expected_criteria_names}")
+                print(f"   Skipping this score to prevent incorrect matching.")
+                continue
         
-        # LANGFUSE: Span updated/closed automatically
+        # Debug: Log name normalization
+        if raw_criteria_name != normalized_name:
+            print(f"DEBUG: Normalized criteria name: '{raw_criteria_name}' -> '{normalized_name}'")
         
-        return scores
+        # Check if we've already scored this criterion
+        if normalized_name in matched_criteria:
+            print(f"⚠ WARNING: Duplicate score for criterion '{normalized_name}'. Keeping first occurrence.")
+            continue
         
-    except Exception as e:
-        print(f"ERROR in LLM call: {e}")
-        # LANGFUSE: Error captured automatically by @observe
-        raise
+        matched_criteria.add(normalized_name)
+        
+        # Clamp score to 0-100 range
+        try:
+            raw_score = float(s["score"])
+        except (ValueError, TypeError):
+            print(f"⚠ WARNING: Invalid score '{s.get('score')}'. Defaulting to 0.")
+            raw_score = 0.0
+
+        if raw_score < 0:
+            print(f"⚠ WARNING: Score {raw_score} < 0. Clamping to 0.")
+            raw_score = 0.0
+        elif raw_score > 100:
+            print(f"⚠ WARNING: Score {raw_score} > 100. Clamping to 100.")
+            raw_score = 100.0
+        
+        score_obj = CriterionScore(
+            criteria_name=normalized_name,  # Use normalized name
+            score=raw_score,
+            reasoning=s.get("reasoning", "") or "", # Added for stability
+            evidence=s.get("evidence", "") or "",  # Ensure it's a string, not None
+            gap=s.get("gap", "") or ""  # Ensure it's a string, not None
+        )
+        
+        # Debug: Print if evidence/gap are empty
+        if not score_obj.evidence and not score_obj.gap:
+            print(f"WARNING: No evidence or gap for criterion: {score_obj.criteria_name}")
+        
+        scores.append(score_obj)
+    
+    # Return the processed scores
+    print(f"✓ Returning {len(scores)} criteria scores")
+    return scores
 
 
 def generate_qualification_note(
@@ -1896,7 +1981,9 @@ def generate_qualification_summary(
     language: str = "English",
     langfuse_parent=None,
     session_id: str = None,
-    model: str = None
+    model: str = None,
+    prompt_version: int = None,
+    prompt_label: str = None
 ) -> str:
     """
     Generate a concise summary of the qualification note.
@@ -1907,36 +1994,49 @@ def generate_qualification_summary(
         language: Language for the summary (default: "English")
         session_id: Optional session ID for Langfuse tracking
         model: Optional model name to use
+        prompt_version: Optional specific Langfuse prompt version
+        prompt_label: Optional Langfuse prompt label (e.g., 'production', 'latest')
         
     Returns:
         Concise summary text
     """
-    print("\n[LLM CALL via OpenRouter] Qualification Summary Generation...")
+    print("\n[LLM CALL] Qualification Summary Generation...")
     print(f"🌐 Language: {language}")
     if fit_level:
         print(f"🎯 Fit Level (enforced): {fit_level}")
     
-    # Build prompt for summary generation
-    summary_prompt = """You are a talent acquisition specialist. Your task is to create a concise, executive-level summary of a detailed qualification assessment.
-
-## YOUR TASK:
-Review the provided qualification note and extract the key points to create a brief summary (2-3 paragraphs maximum) that includes:
-
-1. **Overall Fit Assessment** - The candidate's fit level (Exceptional/Strong/Good/Moderate/Weak/Poor Fit)
-2. **Key Strengths** - Top 2-3 most relevant strengths from recent experience
-3. **Primary Concerns** - Main gaps or concerns (if any)
-4. **Recommendation** - The recommendation (ADVANCE/PROCEED WITH CAUTION/DO NOT ADVANCE)
-
-## LANGUAGE REQUIREMENT:
-**IMPORTANT:** Generate the summary in **{language}**. All content must be written in {language}.
-
-## OUTPUT FORMAT:
-Provide a well-structured, professional summary in plain text (no HTML). Keep it concise and actionable. Write entirely in **{language}**.
-
-## QUALIFICATION NOTE:
-{qualification_note}
-
-## YOUR SUMMARY:""".format(qualification_note=qualification_note, language=language)
+    # Build prompt for summary generation using the imported template
+    summary_prompt_content = None
+    langfuse_prompt = None
+    
+    if LANGFUSE_ENABLED and langfuse:
+        try:
+            # Fetch from Langfuse with version/label if provided
+            if prompt_version:
+                langfuse_prompt = langfuse.get_prompt("qualification-summary", version=prompt_version)
+                print(f"✓ Used Langfuse prompt: 'qualification-summary' (version {prompt_version})")
+            elif prompt_label:
+                langfuse_prompt = langfuse.get_prompt("qualification-summary", label=prompt_label)
+                print(f"✓ Used Langfuse prompt: 'qualification-summary' (label: {prompt_label})")
+            else:
+                langfuse_prompt = langfuse.get_prompt("qualification-summary")
+                print("✓ Used Langfuse prompt: 'qualification-summary' (production/default)")
+            
+            summary_prompt_content = langfuse_prompt.compile(
+                qualification_note=qualification_note, 
+                language=language
+            )
+        except Exception as e:
+            print(f"⚠ Could not fetch 'qualification-summary' from Langfuse, using local fallback: {e}")
+            summary_prompt_content = None
+    
+    # Fallback to local prompt if Langfuse failed or is disabled
+    if not summary_prompt_content:
+        summary_prompt_content = QUALIFICATION_SUMMARY.format(
+            qualification_note=qualification_note, 
+            language=language
+        )
+        print("✓ Used local fallback prompt for qualification summary")
     
     try:
         # Call OpenRouter (returns content and LLM duration)
@@ -1944,13 +2044,13 @@ Provide a well-structured, professional summary in plain text (no HTML). Keep it
             messages=[
                 {
                     "role": "user",
-                    "content": summary_prompt
+                    "content": summary_prompt_content
                 }
             ],
             max_tokens=500,  # Shorter for summary
             generation_name="qualification_summary",
             langfuse_parent=langfuse_parent,
-            langfuse_prompt=None,
+            langfuse_prompt=langfuse_prompt,
             session_id=session_id,
             model=model
         )
