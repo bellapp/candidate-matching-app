@@ -2024,7 +2024,8 @@ def generate_qualification_summary(
             
             summary_prompt_content = langfuse_prompt.compile(
                 qualification_note=qualification_note, 
-                language=language
+                language=language,
+                fit_level=fit_level or "N/A"
             )
         except Exception as e:
             print(f"⚠ Could not fetch 'qualification-summary' from Langfuse, using local fallback: {e}")
@@ -2034,7 +2035,8 @@ def generate_qualification_summary(
     if not summary_prompt_content:
         summary_prompt_content = QUALIFICATION_SUMMARY.format(
             qualification_note=qualification_note, 
-            language=language
+            language=language,
+            fit_level=fit_level or "N/A"
         )
         print("✓ Used local fallback prompt for qualification summary")
     

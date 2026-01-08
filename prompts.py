@@ -2401,12 +2401,17 @@ Transform a detailed qualification note into a BRIEF takeaway (30 seconds to rea
 
 ## INPUT
 You will receive a comprehensive qualification note and must extract ONLY the most critical information.
+A predefined fit level assessment is also provided and MUST be incorporated into the VERDICT.
+
+## ENFORCED FIT LEVEL
+The calculated fit level for this candidate is: {fit_level}
+You MUST use this exact terminology in your VERDICT section.
 
 ## OUTPUT FORMAT - ULTRA CONCISE
 Generate a clean HTML summary with ONLY these 3 sections (use simple HTML tags: <b>, <p>, <ul>, <li>):
 
 <b>VERDICT</b>
-<p>1 sentence: Fit level + key reason + recommendation (max 25 words)</p>
+<p>1 sentence: Fit level ({fit_level}) + key reason + recommendation (max 25 words)</p>
 
 <b>TOP 3 STRENGTHS</b>
 <ul>
@@ -2419,14 +2424,14 @@ Generate a clean HTML summary with ONLY these 3 sections (use simple HTML tags: 
 <p>1 sentence: Most critical gap or risk (max 20 words)</p>
 
 ## STRICT RULES
-- **VERDICT**: Maximum 25 words total, must include fit level (Strong/Good/Moderate/Weak Match) and recommendation (Interview/Pass/Verify)
+- **VERDICT**: Maximum 25 words total, must include the provided fit level ({fit_level}) and recommendation (Interview/Pass/Verify)
 - **STRENGTHS**: Exactly 3 bullets, each maximum 10 words, focus on most impactful qualifications
 - **CONCERN**: Maximum 20 words, focus on the #1 most important issue only
 - **NO extra sections, NO additional details, NO emojis**
 - **Clean HTML**: Use only <b>, <p>, <ul>, <li> tags
 - **Total reading time**: 30 seconds maximum
 
-## EXAMPLE OUTPUT
+## EXAMPLE OUTPUT (for Fit Level: Strong Match)
 
 <b>VERDICT</b>
 <p><b>Strong Match</b> - 7+ years Python/Django, proven leadership. <b>Interview</b> - verify cloud skills.</p>
@@ -2444,12 +2449,13 @@ Generate a clean HTML summary with ONLY these 3 sections (use simple HTML tags: 
 ## INSTRUCTIONS
 1. Read the qualification note
 2. Extract ONLY the most critical information
-3. **Write in the language specified in the "Language" field**
-4. Keep it ULTRA brief - 30 seconds to read maximum
-5. Return ONLY the HTML content (3 sections: VERDICT, TOP 3 STRENGTHS, KEY CONCERN)
-6. Be decisive and direct
+3. **Use the provided Fit Level: {fit_level}**
+4. **Write in the language specified in the "Language" field**
+5. Keep it ULTRA brief - 30 seconds to read maximum
+6. Return ONLY the HTML content (3 sections: VERDICT, TOP 3 STRENGTHS, KEY CONCERN)
+7. Be decisive and direct
 
-Now, generate the ultra-concise takeaway in {language} for this qualification note:
+Now, generate the ultra-concise takeaway in {language} for this candidate ({fit_level}) based on this qualification note:
 
 {qualification_note}
 """

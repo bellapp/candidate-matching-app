@@ -510,6 +510,7 @@ def main():
             with st.spinner(f"Generating concise summary in {language}..."):
                 qualification_summary = generate_qualification_summary(
                     qualification_note,
+                    fit_level=fit_level,
                     language=language,
                     langfuse_parent=langfuse_trace,  # Not used in v3.x, kept for compatibility
                     session_id=session_id,  # Pass session_id to group all operations
